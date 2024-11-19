@@ -16,6 +16,7 @@ from target_mssql.connector import mssqlConnector
 class mssqlSink(SQLSink):
     """mssql target sink class."""
     connector_class = mssqlConnector
+    dropped_tables = dict()
 
     # Copied purely to help with type hints
     @property
@@ -161,10 +162,13 @@ class mssqlSink(SQLSink):
 
         if self.key_properties:
             self.logger.info(f"Preparing table {self.full_table_name}")
+
             # NOTE: Force create the table
             # TODO: remove this
-            self.logger.info("Force dropping the table!")
-            self.connector.connection.execute(f"DROP TABLE IF EXISTS #{self.full_table_name};")
+            if not self.dropped_tables.get(self.stream_name, False):
+                self.logger.info("Force dropping the table!")
+                self.connector.connection.execute(f"DROP TABLE IF EXISTS {self.full_table_name};")
+                self.dropped_tables[self.stream_name] = True
 
             self.connector.prepare_table(
                 full_table_name=self.full_table_name,
