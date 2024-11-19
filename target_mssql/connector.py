@@ -43,12 +43,6 @@ class mssqlConnector(SQLConnector):
             primary_keys = self.key_properties
         partition_keys = partition_keys or None
 
-
-        # NOTE: Force create the table
-        # TODO: remove this
-        self.logger.info("Force dropping the table!")
-        self.connection.execute(f"DROP TABLE IF EXISTS #{full_table_name};")
-
         self.connector.prepare_table(
             full_table_name=full_table_name,
             primary_keys=primary_keys,

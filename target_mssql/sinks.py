@@ -178,6 +178,11 @@ class mssqlSink(SQLSink):
 
         if self.key_properties:
             self.logger.info(f"Preparing table {self.full_table_name}")
+            # NOTE: Force create the table
+            # TODO: remove this
+            self.logger.info("Force dropping the table!")
+            self.connector.connection.execute(f"DROP TABLE IF EXISTS #{self.full_table_name};")
+
             self.connector.prepare_table(
                 full_table_name=self.full_table_name,
                 schema=self.conform_schema(self.schema),
