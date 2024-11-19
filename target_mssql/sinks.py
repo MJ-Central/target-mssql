@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Union
+from copy import copy
 import sqlalchemy
 from singer_sdk.sinks import SQLSink
-from sqlalchemy import Column, text
+from sqlalchemy import Column
 from textwrap import dedent
 import re
 from singer_sdk.helpers._conformers import replace_leading_digit, snakecase
@@ -75,6 +76,7 @@ class mssqlSink(SQLSink):
         if self.key_properties:
             schema = self.conform_schema(self.schema)
             for prop in self.key_properties:
+                # prop = self.conform_name(prop)
                 isnumeric = ("string" not in schema['properties'][prop]['type']) and isnumeric
             
         return self.key_properties and isnumeric
@@ -116,19 +118,14 @@ class mssqlSink(SQLSink):
             for column, field in zip(columns, self.schema["properties"].keys()):
                 insert_record[column.name] = record.get(field)
             insert_records.append(insert_record)
+
         if self.check_string_key_properties():
-            self.connection.execute(
-                sqlalchemy.text("SET IDENTITY_INSERT :table_name ON"),
-                {"table_name": full_table_name}
-            )
+           self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } ON")
 
         self.connection.execute(insert_sql, insert_records)
 
         if self.check_string_key_properties():
-            self.connection.execute(
-                sqlalchemy.text("SET IDENTITY_INSERT :table_name OFF"), 
-                {"table_name": full_table_name}
-            )
+            self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } OFF")
 
         if isinstance(records, list):
             return len(records)  # If list, we can quickly return record count.
@@ -150,6 +147,26 @@ class mssqlSink(SQLSink):
                 )
             )
         return columns
+    
+    # def conform_schema(self, schema: dict) -> dict:
+    #     """Return schema dictionary with property names conformed.
+
+    #     Args:
+    #         schema: JSON schema dictionary.
+
+    #     Returns:
+    #         A schema dictionary with the property names conformed.
+    #     """
+    #     conformed_schema = copy(schema)
+    #     conformed_property_names = {
+    #         key: self.conform_name(key) for key in conformed_schema["properties"].keys()
+    #     }
+    #     self._check_conformed_names_not_duplicated(conformed_property_names)
+    #     conformed_schema["properties"] = {
+    #         conformed_property_names[key]: value
+    #         for key, value in conformed_schema["properties"].items()
+    #     }
+    #     return conformed_schema
 
     def process_batch(self, context: dict) -> None:
         """Process a batch with the given batch context.
@@ -238,35 +255,64 @@ class mssqlSink(SQLSink):
             ]
         )  # noqa
 
-        merge_sql = text("""
-            MERGE INTO :to_table AS target
-            USING :from_table AS temp
-            ON :join_condition
+        merge_sql = f"""
+            MERGE INTO {to_table_name} AS target
+            USING {from_table_name} AS temp
+            ON {join_condition}
             WHEN MATCHED THEN
-                UPDATE SET :update_stmt
+                UPDATE SET
+                    { update_stmt }
             WHEN NOT MATCHED THEN
-                INSERT (:columns)
-                VALUES (:values);
-        """)
+                INSERT ({", ".join([f"[{key}]" for key in schema["properties"].keys()])})
+                VALUES ({", ".join([f"temp.[{key}]" for key in schema["properties"].keys()])});
+        """
 
-        params = {
-            "to_table": to_table_name,
-            "from_table": from_table_name,
-            "join_condition": join_condition,
-            "update_stmt": update_stmt,
-            "columns": ", ".join([f"[{key}]" for key in schema["properties"].keys()]),
-            "values": ", ".join([f"temp.[{key}]" for key in schema["properties"].keys()])
-        }
+      
 
         if self.check_string_key_properties():
             self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } ON")
 
-        self.connection.execute(merge_sql, params)
+        self.connection.execute(merge_sql)
 
         if self.check_string_key_properties():
             self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } OFF")
 
         self.connection.execute("COMMIT")
+
+    def conform_schema_new(self, schema: dict) -> dict:
+        """Return schema dictionary with property names conformed.
+
+        Args:
+            schema: JSON schema dictionary.
+
+        Returns:
+            A schema dictionary with the property names conformed.
+        """
+        conformed_schema = copy(schema)
+        conformed_property_names = {
+            key: self.conform_name_new(key) for key in conformed_schema["properties"].keys()
+        }
+        self._check_conformed_names_not_duplicated(conformed_property_names)
+        conformed_schema["properties"] = {
+            conformed_property_names[key]: value
+            for key, value in conformed_schema["properties"].items()
+        }
+        return conformed_schema
+
+    def bracket_names(self, name: str) -> str:
+        return f"[{name}]"
+    
+    def unbracket_names(self, name: str) -> str:
+        if self.is_bracketed(name):
+            return name.replace("[", "").replace("]", "")
+        return name
+    
+    def is_bracketed(self, name: str) -> bool:
+        return name.startswith("[") and name.endswith("]")
+    
+    def is_protected_name(self, name: str) -> bool:
+        mssql_reserved_keywords = ["ADD","EXTERNAL","PROCEDURE","ALL","FETCH","PUBLIC","ALTER","FILE","RAISERROR","AND","FILLFACTOR","READ","ANY","FOR","READTEXT","AS","FOREIGN","RECONFIGURE","ASC","FREETEXT","REFERENCES","AUTHORIZATION","FREETEXTTABLE","REPLICATION","BACKUP","FROM","RESTORE","BEGIN","FULL","RESTRICT","BETWEEN","FUNCTION","RETURN","BREAK","GOTO","REVERT","BROWSE","GRANT","REVOKE","BULK","GROUP","RIGHT","BY","HAVING","ROLLBACK","CASCADE","HOLDLOCK","ROWCOUNT","CASE","IDENTITY","ROWGUIDCOL","CHECK","IDENTITY_INSERT","RULE","CHECKPOINT","IDENTITYCOL","SAVE","CLOSE","IF","SCHEMA","CLUSTERED","IN","SECURITYAUDIT","COALESCE","INDEX","SELECT","COLLATE","INNER","SEMANTICKEYPHRASETABLE","COLUMN","INSERT","SEMANTICSIMILARITYDETAILSTABLE","COMMIT","INTERSECT","SEMANTICSIMILARITYTABLE","COMPUTE","INTO","SESSION_USER","CONSTRAINT","IS","SET","CONTAINS","JOIN","SETUSER","CONTAINSTABLE","KEY","SHUTDOWN","CONTINUE","KILL","SOME","CONVERT","LEFT","STATISTICS","CREATE","LIKE","SYSTEM_USER","CROSS","LINENO","TABLE","CURRENT","LOAD","TABLESAMPLE","CURRENT_DATE","MERGE","TEXTSIZE","CURRENT_TIME","NATIONAL","THEN","CURRENT_TIMESTAMP","NOCHECK","TO","CURRENT_USER","NONCLUSTERED","TOP","CURSOR","NOT","TRAN","DATABASE","NULL","TRANSACTION","DBCC","NULLIF","TRIGGER","DEALLOCATE","OF","TRUNCATE","DECLARE","OFF","TRY_CONVERT","DEFAULT","OFFSETS","TSEQUAL","DELETE","ON","UNION","DENY","OPEN","UNIQUE","DESC","OPENDATASOURCE","UNPIVOT","DISK","OPENQUERY","UPDATE","DISTINCT","OPENROWSET","UPDATETEXT","DISTRIBUTED","OPENXML","USE","DOUBLE","OPTION","USER","DROP","OR","VALUES","DUMP","ORDER","VARYING","ELSE","OUTER","VIEW","END","OVER","WAITFOR","ERRLVL","PERCENT","WHEN","ESCAPE","PIVOT","WHERE","EXCEPT","PLAN","WHILE","EXEC","PRECISION","WITH","EXECUTE","PRIMARY","WITHIN GROUP","EXISTS","PRINT","WRITETEXT","EXIT","PROC"]
+        return name.upper() in mssql_reserved_keywords
     
     def conform_name(self, name: str, object_type: Optional[str] = None) -> str:
         """Conform a stream property name to one suitable for the target system.
@@ -283,6 +329,12 @@ class mssqlSink(SQLSink):
         name = snakecase(name)
         # replace leading digit
         return replace_leading_digit(name)
+
+    def conform_name_new(self, name: str, object_type: Optional[str] = None) -> str:
+        name = super().conform_name(name, object_type)
+        if self.is_protected_name(name):
+            return self.bracket_names(name)
+        return name
     
     def generate_insert_statement(
         self,
@@ -298,11 +350,11 @@ class mssqlSink(SQLSink):
         Returns:
             An insert statement.
         """
-        property_names = list(self.conform_schema(schema)["properties"].keys())
+        property_names = list(self.conform_schema_new(schema)["properties"].keys())
         statement = dedent(
             f"""\
             INSERT INTO {full_table_name}
-            ({", ".join([f"[{name}]" for name in property_names])})
+            ({", ".join(property_names)})
             VALUES ({", ".join([f":{self.unbracket_names(name)}" for name in property_names])})
             """
         )
