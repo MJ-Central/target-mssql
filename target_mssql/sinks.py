@@ -74,6 +74,8 @@ class mssqlSink(SQLSink):
         if self.key_properties:
             schema = self.conform_schema(self.schema)
             for prop in self.key_properties:
+                if self.is_bracketed(prop):
+                    prop = self.unbracket_names(prop)
                 isnumeric = ("string" not in schema['properties'][prop]['type']) and isnumeric
             
         return self.key_properties and isnumeric
@@ -115,8 +117,6 @@ class mssqlSink(SQLSink):
             for column, field in zip(columns, self.schema["properties"].keys()):
                 insert_record[column.name] = record.get(field)
             insert_records.append(insert_record)
-
-        
 
         if self.check_string_key_properties():
            self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } ON")
@@ -288,8 +288,13 @@ class mssqlSink(SQLSink):
             conformed_property_names[key]: value
             for key, value in conformed_schema["properties"].items()
         }
-        self.key_properties = [self.bracket_names(key) for key in self.key_properties]
         return conformed_schema
 
     def bracket_names(self, name: str) -> str:
         return f"[{name}]"
+    
+    def unbracket_names(self, name: str) -> str:
+        return name.replace("[", "").replace("]", "")
+    
+    def is_bracketed(self, name: str) -> bool:
+        return name.startswith("[") and name.endswith("]")
