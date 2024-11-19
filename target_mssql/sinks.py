@@ -8,6 +8,8 @@ import sqlalchemy
 from singer_sdk.sinks import SQLSink
 from sqlalchemy import Column
 from textwrap import dedent
+import re
+from singer_sdk.helpers._conformers import replace_leading_digit, snakecase
 
 from target_mssql.connector import mssqlConnector
 
@@ -73,7 +75,7 @@ class mssqlSink(SQLSink):
         if self.key_properties:
             schema = self.conform_schema(self.schema)
             for prop in self.key_properties:
-                prop = self.conform_name(prop)
+                # prop = self.conform_name(prop)
                 isnumeric = ("string" not in schema['properties'][prop]['type']) and isnumeric
             
         return self.key_properties and isnumeric
@@ -139,7 +141,7 @@ class mssqlSink(SQLSink):
         for property_name, property_jsonschema in conformed_properties.items():
             columns.append(
                 Column(
-                    self.unbracket_names(property_name),
+                    property_name,
                     self.connector.to_sql_type(property_jsonschema),
                 )
             )
@@ -233,12 +235,12 @@ class mssqlSink(SQLSink):
         schema = self.conform_schema(schema)
 
         join_condition = " and ".join(
-            [f"temp.{key} = target.{key}" for key in join_keys]
+            [f"temp.[{key}] = target.[{key}]" for key in join_keys]
         )
 
         update_stmt = ", ".join(
             [
-                f"target.{key} = temp.{key}"
+                f"target.[{key}] = temp.[{key}]"
                 for key in schema["properties"].keys()
                 if key not in join_keys
             ]
@@ -252,8 +254,8 @@ class mssqlSink(SQLSink):
                 UPDATE SET
                     { update_stmt }
             WHEN NOT MATCHED THEN
-                INSERT ({", ".join(schema["properties"].keys())})
-                VALUES ({", ".join([f"temp.{key}" for key in schema["properties"].keys()])});
+                INSERT ({", ".join([f"[{key}]" for key in schema["properties"].keys()])})
+                VALUES ({", ".join([f"temp.[{key}]" for key in schema["properties"].keys()])});
         """
 
       
@@ -268,7 +270,7 @@ class mssqlSink(SQLSink):
 
         self.connection.execute("COMMIT")
 
-    def conform_schema(self, schema: dict) -> dict:
+    def conform_schema_new(self, schema: dict) -> dict:
         """Return schema dictionary with property names conformed.
 
         Args:
@@ -279,7 +281,7 @@ class mssqlSink(SQLSink):
         """
         conformed_schema = copy(schema)
         conformed_property_names = {
-            key: self.conform_name(key) for key in conformed_schema["properties"].keys()
+            key: self.conform_name_new(key) for key in conformed_schema["properties"].keys()
         }
         self._check_conformed_names_not_duplicated(conformed_property_names)
         conformed_schema["properties"] = {
@@ -304,6 +306,22 @@ class mssqlSink(SQLSink):
         return name.upper() in mssql_reserved_keywords
     
     def conform_name(self, name: str, object_type: Optional[str] = None) -> str:
+        """Conform a stream property name to one suitable for the target system.
+        Transforms names to snake case, applicable to most common DBMSs'.
+        Developers may override this method to apply custom transformations
+        to database/schema/table/column names.
+        """
+        # strip non-alphanumeric characters, keeping - . _ and spaces
+        name = re.sub(r"[^a-zA-Z0-9_\-\.\s]", "", name)
+        # convert to snakecase
+        if name.isupper():
+            name = name.lower()
+
+        name = snakecase(name)
+        # replace leading digit
+        return replace_leading_digit(name)
+
+    def conform_name_new(self, name: str, object_type: Optional[str] = None) -> str:
         name = super().conform_name(name, object_type)
         if self.is_protected_name(name):
             return self.bracket_names(name)
@@ -323,7 +341,7 @@ class mssqlSink(SQLSink):
         Returns:
             An insert statement.
         """
-        property_names = list(self.conform_schema(schema)["properties"].keys())
+        property_names = list(self.conform_schema_new(schema)["properties"].keys())
         statement = dedent(
             f"""\
             INSERT INTO {full_table_name}
