@@ -270,21 +270,26 @@ class mssqlSink(SQLSink):
 
         self.connection.execute("COMMIT")
 
-    def conform_name(self, name: str, object_type: Optional[str] = None) -> str:
-        """Conform a stream property name to one suitable for the target system.
+    def conform_schema(self, schema: dict) -> dict:
+        """Return schema dictionary with property names conformed.
 
-        Transforms names to snake case, applicable to most common DBMSs'.
-        Developers may override this method to apply custom transformations
-        to database/schema/table/column names.
+        Args:
+            schema: JSON schema dictionary.
+
+        Returns:
+            A schema dictionary with the property names conformed.
         """
-        # strip non-alphanumeric characters, keeping - . _ and spaces
-        name = re.sub(r"[^a-zA-Z0-9_\-\.\s]", "", name)
+        conformed_schema = copy(schema)
+        conformed_property_names = {
+            key: self.bracket_names(self.conform_name(key)) for key in conformed_schema["properties"].keys()
+        }
+        self._check_conformed_names_not_duplicated(conformed_property_names)
+        conformed_schema["properties"] = {
+            conformed_property_names[key]: value
+            for key, value in conformed_schema["properties"].items()
+        }
+        self.key_properties = [self.bracket_names(key) for key in self.key_properties]
+        return conformed_schema
 
-        # convert to snakecase
-        if name.isupper():
-            name = name.lower()
-
-        name = snakecase(name)
-
-        # replace leading digit
-        return replace_leading_digit(name)
+    def bracket_names(self, name: str) -> str:
+        return f"[{name}]"
