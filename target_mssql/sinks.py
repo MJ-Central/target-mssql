@@ -250,6 +250,7 @@ class mssqlSink(SQLSink):
         """
 
       
+        self.connection.execute("BEGIN TRANSACTION")
 
         if self.check_string_key_properties():
             self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } ON")
