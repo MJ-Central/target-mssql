@@ -147,26 +147,6 @@ class mssqlSink(SQLSink):
                 )
             )
         return columns
-    
-    # def conform_schema(self, schema: dict) -> dict:
-    #     """Return schema dictionary with property names conformed.
-
-    #     Args:
-    #         schema: JSON schema dictionary.
-
-    #     Returns:
-    #         A schema dictionary with the property names conformed.
-    #     """
-    #     conformed_schema = copy(schema)
-    #     conformed_property_names = {
-    #         key: self.conform_name(key) for key in conformed_schema["properties"].keys()
-    #     }
-    #     self._check_conformed_names_not_duplicated(conformed_property_names)
-    #     conformed_schema["properties"] = {
-    #         conformed_property_names[key]: value
-    #         for key, value in conformed_schema["properties"].items()
-    #     }
-    #     return conformed_schema
 
     def process_batch(self, context: dict) -> None:
         """Process a batch with the given batch context.
@@ -187,12 +167,14 @@ class mssqlSink(SQLSink):
             #     self.connector.connection.execute(f"DROP TABLE IF EXISTS {self.full_table_name};")
             #     self.dropped_tables[self.stream_name] = True
 
+            conformed_schema = self.conform_schema(self.schema)
             self.connector.prepare_table(
                 full_table_name=self.full_table_name,
-                schema=self.conform_schema(self.schema),
+                schema=conformed_schema,
                 primary_keys=self.key_properties,
                 as_temp_table=False,
             )
+            self.alter_varchar_columns(self.full_table_name, conformed_schema)
             # Create a temp table (Creates from the table above)
             self.logger.info(f"Creating temp table {self.full_table_name}")
             self.connector.create_temp_table_from_table(
@@ -202,7 +184,7 @@ class mssqlSink(SQLSink):
             self.logger.info("Inserting into temp table")
             self.bulk_insert_records(
                 full_table_name=f"#{self.full_table_name}",
-                schema=self.conform_schema(self.schema),
+                schema=conformed_schema,
                 records=context["records"],
             )
             # Merge data from Temp table to main table
@@ -210,14 +192,14 @@ class mssqlSink(SQLSink):
             self.merge_upsert_from_table(
                 from_table_name=f"#{self.full_table_name}",
                 to_table_name=f"{self.full_table_name}",
-                schema=self.conform_schema(self.schema),
+                schema=conformed_schema,
                 join_keys=self.key_properties,
             )
 
         else:
             self.bulk_insert_records(
                 full_table_name=self.full_table_name,
-                schema=self.conform_schema(self.schema),
+                schema=conformed_schema,
                 records=context["records"],
             )
 
@@ -359,3 +341,10 @@ class mssqlSink(SQLSink):
             """
         )
         return statement.rstrip()
+    
+    def alter_varchar_columns(self, full_table_name: str, schema: dict):
+        for key, value in schema["properties"].items():
+            if key in self.key_properties:
+                continue
+            if value.get("type") == "string" or set(value.get("type")) == {"string", "null"}:
+                self.connection.execute(f"ALTER TABLE {full_table_name} ALTER COLUMN {key} VARCHAR(MAX);")
