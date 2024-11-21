@@ -180,6 +180,7 @@ class mssqlSink(SQLSink):
             self.connector.create_temp_table_from_table(
                 from_table_name=self.full_table_name
             )
+
             # Insert into temp table
             self.logger.info("Inserting into temp table")
             self.bulk_insert_records(
@@ -249,18 +250,17 @@ class mssqlSink(SQLSink):
                 VALUES ({", ".join([f"temp.[{key}]" for key in schema["properties"].keys()])});
         """
 
-      
-        self.connection.execute("BEGIN TRANSACTION")
+        def do_merge(conn, merge_sql, is_check_string_key_properties):
+            if is_check_string_key_properties:
+                conn.execute(f"SET IDENTITY_INSERT { to_table_name } ON")
+            
+            conn.execute(merge_sql)
 
-        if self.check_string_key_properties():
-            self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } ON")
+            if is_check_string_key_properties:
+                conn.execute(f"SET IDENTITY_INSERT { to_table_name } OFF")
 
-        self.connection.execute(merge_sql)
-
-        if self.check_string_key_properties():
-            self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } OFF")
-
-        self.connection.execute("COMMIT")
+        is_check_string_key_properties = self.check_string_key_properties()
+        self.connection.transaction(do_merge, merge_sql, is_check_string_key_properties)
 
     def conform_schema_new(self, schema: dict) -> dict:
         """Return schema dictionary with property names conformed.
