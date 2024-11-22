@@ -177,6 +177,7 @@ class mssqlConnector(SQLConnector):
                     if (
                         (opt_len is None)
                         or (opt_len == 0)
+                        or (current_type.length is None)
                         or (opt_len >= current_type.length)
                     ):
                         return opt
@@ -188,6 +189,7 @@ class mssqlConnector(SQLConnector):
                     if (
                         (opt_len is None)
                         or (opt_len == 0)
+                        or (current_type.length is None)
                         or (opt_len >= current_type.length)
                     ):
                         return opt
