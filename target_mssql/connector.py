@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional, cast
 
 import sqlalchemy
+import urllib.parse
 from singer_sdk.helpers._typing import get_datelike_property_type
 from singer_sdk.sinks import SQLConnector
 from sqlalchemy.dialects import mssql
@@ -61,17 +62,18 @@ class mssqlConnector(SQLConnector):
 
         connection_url = sqlalchemy.engine.url.URL.create(
             drivername="mssql+pyodbc",
-            username=f"{config['user']}@{config['host'].split('.')[0]}",  # Append @server
-            password=config["password"],
+            username=config['user'],
+            password=urllib.parse.quote_plus(config["password"]),
             host=config["host"],
             port=config["port"],
             database=config["database"],
             query={
                 "driver": "ODBC Driver 17 for SQL Server",  # Use Microsoft's ODBC driver
                 "Encrypt": "yes",  # Ensures SSL encryption for Azure SQL
-                "TrustServerCertificate": "no",  # Prevents bypassing certificate validation
+                "TrustServerCertificate": "yes",  # Prevents bypassing certificate validation
             }
         )
+
         return str(connection_url)
 
     def create_empty_table(
