@@ -69,7 +69,7 @@ class mssqlConnector(SQLConnector):
             query={
                 "driver": "ODBC Driver 17 for SQL Server",  # Use Microsoft's ODBC driver
                 "Encrypt": "yes",  # Ensures SSL encryption for Azure SQL
-                # "TrustServerCertificate": "no",  # Prevents bypassing certificate validation
+                "TrustServerCertificate": "no",  # Prevents bypassing certificate validation
             }
         )
         return str(connection_url)
