@@ -38,7 +38,7 @@ class mssqlSink(SQLSink):
         parts = self.stream_name.split("-")
 
         if default_target_schema:
-            return default_target_schema
+            return default_target_schema.replace("-", "_")
 
         if len(parts) in {2, 3}:
             # Stream name is a two-part or three-part identifier.
