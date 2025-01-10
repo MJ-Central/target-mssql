@@ -126,7 +126,13 @@ class mssqlConnector(SQLConnector):
                 )
             )
 
-        _ = sqlalchemy.Table(full_table_name, meta, *columns)
+        kwargs = dict()
+
+        if "." in full_table_name:
+            kwargs["schema"] = full_table_name.split(".")[0]
+            full_table_name = full_table_name.split(".")[1]
+
+        _ = sqlalchemy.Table(full_table_name, meta, *columns, **kwargs)
         meta.create_all(self._engine)
 
     def merge_sql_types(  # noqa
@@ -376,7 +382,7 @@ class mssqlConnector(SQLConnector):
 
         ddl = f"""
             SELECT TOP 0 *
-            into #{from_table_name}
+            into #{from_table_name.split(".")[-1]}
             FROM {from_table_name}
         """
 
