@@ -60,13 +60,17 @@ class mssqlConnector(SQLConnector):
         """
 
         connection_url = sqlalchemy.engine.url.URL.create(
-            drivername="mssql+pymssql",
+            drivername="mssql+pyodbc",
             username=config["user"],
             password=config["password"],
             host=config["host"],
             port=config["port"],
             database=config["database"],
-            query={"tds_version": "7.2"}  # Ensure proper TLS support
+            query={
+                "driver": "ODBC Driver 17 for SQL Server",  # Use Microsoft's ODBC driver
+                "Encrypt": "yes",  # Ensures SSL encryption for Azure SQL
+                # "TrustServerCertificate": "no",  # Prevents bypassing certificate validation
+            }
         )
         return str(connection_url)
 
