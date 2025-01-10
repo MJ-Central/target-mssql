@@ -61,7 +61,7 @@ class mssqlConnector(SQLConnector):
 
         connection_url = sqlalchemy.engine.url.URL.create(
             drivername="mssql+pyodbc",
-            username=config["user"],
+            username=f"{config['user']}@{config['host'].split('.')[0]}",  # Append @server
             password=config["password"],
             host=config["host"],
             port=config["port"],
