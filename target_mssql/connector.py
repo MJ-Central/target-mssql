@@ -66,6 +66,7 @@ class mssqlConnector(SQLConnector):
             host=config["host"],
             port=config["port"],
             database=config["database"],
+            query={"tds_version": "7.2"}  # Ensure proper TLS support
         )
         return str(connection_url)
 
