@@ -459,10 +459,6 @@ class mssqlConnector(SQLConnector):
             # Apply length only if it's a varchar/nvarchar type
             if col_type.lower() in ["varchar", "nvarchar"]:
                 col_length_str = "(MAX)" if col_length == -1 else f"({col_length})"
-            elif col_type.lower() in ["decimal", "numeric"]:
-                col_length_str = f"({precision_value},{scale_value})"
-            elif col_type.lower() in ["datetime", "datetime2", "datetimeoffset"]:
-                col_length_str = f"({min(scale_value, 7)})" if scale_value else ""
             else:
                 col_length_str = ""
 
