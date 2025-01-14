@@ -430,3 +430,21 @@ class mssqlConnector(SQLConnector):
         """
 
         self.connection.execute(ddl)
+
+        # Copy the default constraint as well
+        temp_table_name = f"#{from_table_name.split('.')[-1]}"
+
+        get_defaults_query = f"""
+            SELECT c.name AS ColumnName, d.definition AS DefaultValue
+            FROM sys.default_constraints d
+            INNER JOIN sys.columns c ON d.parent_column_id = c.column_id
+            INNER JOIN sys.tables t ON d.parent_object_id = t.object_id
+            WHERE t.name = '{from_table_name.split('.')[-1]}'
+        """
+
+        defaults = self.connection.execute(get_defaults_query).fetchall()
+
+        for col, default in defaults:
+            if default:
+                alter_sql = f"ALTER TABLE {temp_table_name} ADD CONSTRAINT DF_{col} DEFAULT {default} FOR {col};"
+                self.connection.execute(alter_sql)
