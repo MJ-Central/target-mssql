@@ -196,10 +196,11 @@ class mssqlSink(SQLSink):
         """
         # First we need to be sure the main table is already created
 
+        conformed_schema = self.conform_schema(self.schema)
+
         if self.key_properties:
             self.logger.info(f"Preparing table {self.full_table_name}")
 
-            conformed_schema = self.conform_schema(self.schema)
             self.connector.prepare_table(
                 full_table_name=self.full_table_name,
                 schema=conformed_schema,
