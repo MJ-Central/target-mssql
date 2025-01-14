@@ -167,10 +167,10 @@ class mssqlSink(SQLSink):
         """
         # NOTE: Force create the table
         # TODO: remove this
-        if not self.dropped_tables.get(self.stream_name, False):
-            self.logger.info("Force dropping the table!")
-            self.connector.connection.execute(f"DROP TABLE IF EXISTS {self.full_table_name};")
-            self.dropped_tables[self.stream_name] = True
+        # if not self.dropped_tables.get(self.stream_name, False):
+        #     self.logger.info("Force dropping the table!")
+        #     self.connector.connection.execute(f"DROP TABLE IF EXISTS {self.full_table_name};")
+        #     self.dropped_tables[self.stream_name] = True
 
         if not self.table_exists(full_table_name=full_table_name):
             self.create_empty_table(
