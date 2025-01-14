@@ -448,5 +448,6 @@ class mssqlConnector(SQLConnector):
                 {", ".join(column_definitions)}
             );
         """
+        self.logger.info(f"Create table [{create_temp_table_sql}]")
 
         self.connection.execute(create_temp_table_sql)
