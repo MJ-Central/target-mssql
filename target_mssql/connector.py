@@ -424,26 +424,62 @@ class mssqlConnector(SQLConnector):
         except:
             self.logger.info("No temp table to drop.")
 
+        # Split schema and table name
+        parts = from_table_name.split('.')
+        table_name = parts[-1]
+        schema_name = parts[-2] if len(parts) > 1 else 'dbo'  # Default to 'dbo' if no schema specified
+
         # Query to get column definitions with default constraints
         get_columns_query = f"""
-            SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, COLUMN_DEFAULT
-            FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_NAME = '{from_table_name.split('.')[-1]}'
+            SELECT 
+                c.name AS COLUMN_NAME,
+                t.name AS DATA_TYPE,
+                c.max_length AS CHARACTER_MAXIMUM_LENGTH,
+                dc.definition AS COLUMN_DEFAULT,
+                c.is_nullable AS IS_NULLABLE
+            FROM sys.columns c
+            INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
+            LEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id
+            INNER JOIN sys.tables tbl ON c.object_id = tbl.object_id
+            INNER JOIN sys.schemas s ON tbl.schema_id = s.schema_id
+            WHERE tbl.name = '{table_name}'
+            AND s.name = '{schema_name}'
+            ORDER BY c.column_id;
         """
 
+        # Execute with proper parameters to avoid SQL injection
         columns = self.connection.execute(get_columns_query).fetchall()
-        self.logger.info(f"Fetched cols = {columns}")
+        self.logger.info(f"Fetched columns = {columns}")
 
         # Construct the CREATE TABLE statement
         column_definitions = []
         for col in columns:
             col_name = col[0]
             col_type = col[1]
-            col_length = f"({col[2]})" if col[2] else ""
-            col_default = f"DEFAULT {col[3]}" if col[3] else ""
-            if col_type.lower() in ["varchar"] and col_length == "(-1)":
-                col_length = "(MAX)"
-            column_definitions.append(f"{col_name} {col_type}{col_length} {col_default}")
+            col_length = col[2]
+            col_default = col[3]
+            is_nullable = col[4]
+
+            # Handle different data types
+            if col_type.lower() in ['varchar', 'nvarchar', 'char', 'nchar']:
+                length_spec = '(MAX)' if col_length == -1 else f'({col_length})' if col_length else ''
+            elif col_type.lower() in ['decimal', 'numeric']:
+                # For decimal types, we need precision and scale
+                length_spec = '(18,2)'  # You might want to fetch actual precision/scale
+            else:
+                length_spec = ''
+
+            # Construct the column definition
+            definition = [
+                col_name,
+                f"{col_type}{length_spec}",
+                'NULL' if is_nullable else 'NOT NULL'
+            ]
+            
+            if col_default:
+                definition.append(f"DEFAULT {col_default}")
+
+            column_definitions.append(' '.join(definition))
 
         create_temp_table_sql = f"""
             CREATE TABLE #{from_table_name.split(".")[-1]} (
