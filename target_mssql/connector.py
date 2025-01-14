@@ -471,7 +471,7 @@ class mssqlConnector(SQLConnector):
 
             # Construct the column definition
             definition = [
-                col_name,
+                f"[{col_name}]",
                 f"{col_type}{length_spec}",
                 'NULL' if is_nullable else 'NOT NULL'
             ]
