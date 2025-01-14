@@ -416,10 +416,10 @@ class mssqlConnector(SQLConnector):
         return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
 
     def create_temp_table_from_table(self, from_table_name):
-        """Create a temp table from an existing table, preserving identity columns."""
+        """Create a temp table from an existing table, preserving identity columns and default values."""
 
         try:
-            self.logger.info("Dropping existing temp table.")
+            self.logger.info(f"Dropping existing temp table #{from_table_name.split('.')[-1]}")
             self.connection.execute(f"DROP TABLE IF EXISTS #{from_table_name.split('.')[-1]};")
         except Exception as e:
             self.logger.info(f"No temp table to drop. Error: {e}")
@@ -429,10 +429,9 @@ class mssqlConnector(SQLConnector):
             SELECT 
                 c.name AS COLUMN_NAME,
                 t.name AS DATA_TYPE,
-                CASE 
-                    WHEN c.max_length = -1 THEN 'MAX' 
-                    ELSE CAST(c.max_length AS VARCHAR) 
-                END AS COLUMN_LENGTH,
+                c.max_length AS COLUMN_LENGTH,
+                c.precision AS PRECISION_VALUE,
+                c.scale AS SCALE_VALUE,
                 d.definition AS COLUMN_DEFAULT,
                 COLUMNPROPERTY(c.object_id, c.name, 'IsIdentity') AS IS_IDENTITY
             FROM sys.columns c
@@ -449,14 +448,25 @@ class mssqlConnector(SQLConnector):
         for col in columns:
             col_name = col[0]
             col_type = col[1]
-            col_length = f"({col[2]})" if col[2] and col[2] != "MAX" else "(MAX)"
-            col_default = f"DEFAULT {col[3]}" if col[3] else ""
-            is_identity = col[4]
+            col_length = col[2]
+            precision_value = col[3]
+            scale_value = col[4]
+            col_default = f"DEFAULT {col[5]}" if col[5] else ""
+            is_identity = col[6]
 
-            # Handle IDENTITY column explicitly
             identity_str = "IDENTITY(1,1)" if is_identity else ""
 
-            column_definitions.append(f"[{col_name}] {col_type}{col_length} {identity_str} {col_default}")
+            # Apply length only if it's a varchar/nvarchar type
+            if col_type.lower() in ["varchar", "nvarchar"]:
+                col_length_str = "(MAX)" if col_length == -1 else f"({col_length})"
+            elif col_type.lower() in ["decimal", "numeric"]:
+                col_length_str = f"({precision_value},{scale_value})"
+            elif col_type.lower() in ["datetime", "datetime2", "datetimeoffset"]:
+                col_length_str = f"({min(scale_value, 7)})" if scale_value else ""
+            else:
+                col_length_str = ""
+
+            column_definitions.append(f"[{col_name}] {col_type}{col_length_str} {identity_str} {col_default}")
 
         create_temp_table_sql = f"""
             CREATE TABLE #{from_table_name.split(".")[-1]} (
