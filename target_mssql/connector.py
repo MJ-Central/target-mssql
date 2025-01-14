@@ -20,6 +20,46 @@ class mssqlConnector(SQLConnector):
     allow_column_alter: bool = True  # Whether altering column types is supported.
     allow_merge_upsert: bool = True  # Whether MERGE UPSERT is supported.
     allow_temp_tables: bool = True  # Whether temp tables are supported.
+    dropped_tables = dict()
+
+    def prepare_table(
+        self,
+        full_table_name: str,
+        schema: dict,
+        primary_keys: list[str],
+        partition_keys: list[str] | None = None,
+        as_temp_table: bool = False,
+    ) -> None:
+        """Adapt target table to provided schema if possible.
+
+        Args:
+            full_table_name: the target table name.
+            schema: the JSON Schema for the table.
+            primary_keys: list of key properties.
+            partition_keys: list of partition keys.
+            as_temp_table: True to create a temp table.
+        """
+        # NOTE: Force create the table
+        # TODO: remove this
+        # if not self.dropped_tables.get(full_table_name, False):
+        #     self.logger.info("Force dropping the table!")
+        #     self.connection.execute(f"DROP TABLE IF EXISTS {full_table_name};")
+        #     self.dropped_tables[full_table_name] = True
+
+        if not self.table_exists(full_table_name=full_table_name):
+            self.create_empty_table(
+                full_table_name=full_table_name,
+                schema=schema,
+                primary_keys=primary_keys,
+                partition_keys=partition_keys,
+                as_temp_table=as_temp_table,
+            )
+            return
+
+        for property_name, property_def in schema["properties"].items():
+            self.prepare_column(
+                full_table_name, property_name, self.to_sql_type(property_def)
+            )
 
     def create_table_with_records(
         self,
@@ -43,6 +83,7 @@ class mssqlConnector(SQLConnector):
         if primary_keys is None:
             primary_keys = self.key_properties
         partition_keys = partition_keys or None
+
         self.connector.prepare_table(
             full_table_name=full_table_name,
             primary_keys=primary_keys,
@@ -189,6 +230,7 @@ class mssqlConnector(SQLConnector):
                     if (
                         (opt_len is None)
                         or (opt_len == 0)
+                        or (current_type.length is None)
                         or (opt_len >= current_type.length)
                     ):
                         return opt
@@ -200,6 +242,7 @@ class mssqlConnector(SQLConnector):
                     if (
                         (opt_len is None)
                         or (opt_len == 0)
+                        or (current_type.length is None)
                         or (opt_len >= current_type.length)
                     ):
                         return opt
