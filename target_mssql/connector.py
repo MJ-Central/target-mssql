@@ -22,6 +22,26 @@ class mssqlConnector(SQLConnector):
     allow_temp_tables: bool = True  # Whether temp tables are supported.
     dropped_tables = dict()
 
+    def table_exists(self, full_table_name: str) -> bool:
+        """Determine if the target table already exists.
+
+        Args:
+            full_table_name: the target table name.
+
+        Returns:
+            True if table exists, False if not, None if unsure or undetectable.
+        """
+        kwargs = dict()
+
+        if "." in full_table_name:
+            kwargs["schema"] = full_table_name.split(".")[0]
+            full_table_name = full_table_name.split(".")[1]
+
+        return cast(
+            bool,
+            sqlalchemy.inspect(self._engine).has_table(full_table_name, **kwargs),
+        )
+
     def prepare_table(
         self,
         full_table_name: str,

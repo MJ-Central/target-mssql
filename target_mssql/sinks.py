@@ -148,44 +148,6 @@ class mssqlSink(SQLSink):
             )
         return columns
 
-    def prepare_table(
-        self,
-        full_table_name: str,
-        schema: dict,
-        primary_keys: list[str],
-        partition_keys: list[str] | None = None,
-        as_temp_table: bool = False,
-    ) -> None:
-        """Adapt target table to provided schema if possible.
-
-        Args:
-            full_table_name: the target table name.
-            schema: the JSON Schema for the table.
-            primary_keys: list of key properties.
-            partition_keys: list of partition keys.
-            as_temp_table: True to create a temp table.
-        """
-        # NOTE: Force create the table
-        # TODO: remove this
-        # if not self.dropped_tables.get(self.stream_name, False):
-        #     self.logger.info("Force dropping the table!")
-        #     self.connector.connection.execute(f"DROP TABLE IF EXISTS {self.full_table_name};")
-        #     self.dropped_tables[self.stream_name] = True
-
-        if not self.table_exists(full_table_name=full_table_name):
-            self.create_empty_table(
-                full_table_name=full_table_name,
-                schema=schema,
-                primary_keys=primary_keys,
-                partition_keys=partition_keys,
-                as_temp_table=as_temp_table,
-            )
-            return
-
-        for property_name, property_def in schema["properties"].items():
-            self.prepare_column(
-                full_table_name, property_name, self.to_sql_type(property_def)
-            )
 
     def process_batch(self, context: dict) -> None:
         """Process a batch with the given batch context.
