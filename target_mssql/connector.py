@@ -415,7 +415,7 @@ class mssqlConnector(SQLConnector):
         return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
 
     def create_temp_table_from_table(self, from_table_name):
-        """Temp table from another table."""
+        """Create a temp table from an existing table, preserving default values."""
 
         try:
             self.logger.info("Dropping existing temp table.")
@@ -423,28 +423,28 @@ class mssqlConnector(SQLConnector):
         except:
             self.logger.info("No temp table to drop.")
 
-        ddl = f"""
-            SELECT TOP 0 *
-            into #{from_table_name.split(".")[-1]}
-            FROM {from_table_name}
+        # Query to get column definitions with default constraints
+        get_columns_query = f"""
+            SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, COLUMN_DEFAULT
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = '{from_table_name.split('.')[-1]}'
         """
 
-        self.connection.execute(ddl)
+        columns = self.connection.execute(get_columns_query).fetchall()
 
-        # Copy the default constraint as well
-        temp_table_name = f"#{from_table_name.split('.')[-1]}"
+        # Construct the CREATE TABLE statement
+        column_definitions = []
+        for col in columns:
+            col_name = col[0]
+            col_type = col[1]
+            col_length = f"({col[2]})" if col[2] else ""
+            col_default = f"DEFAULT {col[3]}" if col[3] else ""
+            column_definitions.append(f"{col_name} {col_type}{col_length} {col_default}")
 
-        get_defaults_query = f"""
-            SELECT c.name AS ColumnName, d.definition AS DefaultValue
-            FROM sys.default_constraints d
-            INNER JOIN sys.columns c ON d.parent_column_id = c.column_id
-            INNER JOIN sys.tables t ON d.parent_object_id = t.object_id
-            WHERE t.name = '{from_table_name.split('.')[-1]}'
+        create_temp_table_sql = f"""
+            CREATE TABLE #{from_table_name.split(".")[-1]} (
+                {", ".join(column_definitions)}
+            );
         """
 
-        defaults = self.connection.execute(get_defaults_query).fetchall()
-
-        for col, default in defaults:
-            if default:
-                alter_sql = f"ALTER TABLE {temp_table_name} ADD CONSTRAINT DF_{col} DEFAULT {default} FOR {col};"
-                self.connection.execute(alter_sql)
+        self.connection.execute(create_temp_table_sql)
