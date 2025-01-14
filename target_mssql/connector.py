@@ -439,6 +439,8 @@ class mssqlConnector(SQLConnector):
             col_type = col[1]
             col_length = f"({col[2]})" if col[2] else ""
             col_default = f"DEFAULT {col[3]}" if col[3] else ""
+            if col_type.lower() in ["varchar"] and col_length == -1:
+                col_length = "(MAX)"
             column_definitions.append(f"{col_name} {col_type}{col_length} {col_default}")
 
         create_temp_table_sql = f"""
