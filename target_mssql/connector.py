@@ -175,6 +175,7 @@ class mssqlConnector(SQLConnector):
 
         _ = sqlalchemy.Table(full_table_name, meta, *columns, **kwargs)
         meta.create_all(self._engine)
+        self.logger.info(f"Create table with cols = {columns}")
 
     def merge_sql_types(  # noqa
         self, sql_types: list[sqlalchemy.types.TypeEngine]
