@@ -431,6 +431,7 @@ class mssqlConnector(SQLConnector):
         """
 
         columns = self.connection.execute(get_columns_query).fetchall()
+        self.logger.info(f"Fetched cols = {columns}")
 
         # Construct the CREATE TABLE statement
         column_definitions = []
