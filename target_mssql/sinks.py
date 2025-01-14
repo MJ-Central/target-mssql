@@ -207,7 +207,7 @@ class mssqlSink(SQLSink):
                 primary_keys=self.key_properties,
                 as_temp_table=False,
             )
-            self.alter_varchar_columns(self.full_table_name, conformed_schema)
+            # self.alter_varchar_columns(self.full_table_name, conformed_schema)
             # Create a temp table (Creates from the table above)
             self.logger.info(f"Creating temp table {self.full_table_name}")
             self.connector.create_temp_table_from_table(
