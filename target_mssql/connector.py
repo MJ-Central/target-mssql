@@ -429,16 +429,6 @@ class mssqlConnector(SQLConnector):
         table_name = parts[-1]
         schema_name = parts[-2] if len(parts) > 1 else 'dbo'  # Default to 'dbo' if no schema specified
 
-        if table_name == "lists":
-            ddl = f"""
-                SELECT TOP 0 *
-                into #{from_table_name.split(".")[-1]}
-                FROM {from_table_name}
-            """
-
-            self.connection.execute(ddl)
-            return
-
         # Query to get column definitions with default constraints
         get_columns_query = f"""
             SELECT 
