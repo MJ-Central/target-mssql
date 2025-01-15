@@ -138,12 +138,14 @@ class mssqlSink(SQLSink):
 
         # run bcp
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
-        bcp_cmd =f'bcp {database}.{db_schema}.{table_name} in data.csv -S {host} -U {user} -P {password} -c -t"\t"  -e "error_log.txt"'
+        bcp_cmd =f'{bcp} {database}.{db_schema}.{table_name} in data.csv -S {host} -U {user} -P {password} -c -t"\t"  -e "error_log.txt"'
         result = subprocess.run(
             bcp_cmd,
             shell=True, capture_output=True, text=True
         )
         self.logger.info(result.stdout)
+        if result.stderr:
+            self.logger.error(result.stderr)
 
 
         if isinstance(records, list):
@@ -216,7 +218,7 @@ class mssqlSink(SQLSink):
 
             self.logger.info(f"Dropping temp table as batch is done {self.full_table_name}")
             self.connector.drop_temp_table_from_table(
-                from_table_name=f"{db_schema}{temp_table}"
+                temp_table=f"{db_schema}{temp_table}"
             )
         else:
             self.bulk_insert_records(
