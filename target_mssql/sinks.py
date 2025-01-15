@@ -139,7 +139,7 @@ class mssqlSink(SQLSink):
         # run bcp
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
         bcp_cmd =f'{bcp} {database}.{db_schema}.{table_name} in {table_name}.csv -S {host} -U {user} -P {password} -c -t"\t"  -e "error_log.txt"'
-        self.logger.info(f'{bcp} {database}.{db_schema}.{table_name} in {table_name}.csv -S {host} -U {user} -c -t"\t"  -e "error_log.txt"')
+        self.logger.info(f'{bcp} "[{database}].[{db_schema}].[{table_name}]" in {table_name}.csv -S {host} -U {user} -c -t"\t"  -e "error_log.txt"')
         result = subprocess.run(
             bcp_cmd,
             shell=True, capture_output=True, text=True
