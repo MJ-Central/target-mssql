@@ -1,4 +1,5 @@
 """mssql target sink class, which handles writing streams."""
+import os
 from __future__ import annotations
 from target_mssql.timer import Timer
 from datetime import datetime
@@ -136,6 +137,7 @@ class mssqlSink(SQLSink):
         password = self.config.get("password")
 
         # run bcp
+        bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
         bcp_cmd =f'bcp {database}.{db_schema}.{table_name} in data.csv -S {host} -U {user} -P {password} -c -t"\t"  -e "error_log.txt"'
         result = subprocess.run(
             bcp_cmd,
