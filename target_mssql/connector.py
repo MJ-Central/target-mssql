@@ -442,12 +442,13 @@ class mssqlConnector(SQLConnector):
 
         return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
 
-    def drop_temp_table_from_table(self, from_table_name):
+    def drop_temp_table_from_table(self, temp_table):
         """Drop the temp table from an existing table, preserving identity columns and default values."""
 
         try:
-            self.logger.info(f"Dropping existing temp table TMP_{from_table_name.split('.')[-1]}")
-            self.connection.execute(f"DROP TABLE IF EXISTS TMP_{from_table_name.split('.')[-1]};")
+            self.logger.info(f"Dropping existing temp table {temp_table}")
+            with self.connection.begin():  # Starts a transaction
+                self.connection.execute(f"DROP TABLE IF EXISTS {temp_table};")
         except Exception as e:
             self.logger.info(f"No temp table to drop. Error: {e}")
 

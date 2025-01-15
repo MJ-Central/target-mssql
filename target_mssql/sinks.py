@@ -216,7 +216,7 @@ class mssqlSink(SQLSink):
 
             self.logger.info(f"Dropping temp table as batch is done {self.full_table_name}")
             self.connector.drop_temp_table_from_table(
-                from_table_name=self.full_table_name
+                from_table_name=f"{db_schema}{temp_table}"
             )
         else:
             self.bulk_insert_records(
