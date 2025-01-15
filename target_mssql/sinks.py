@@ -19,7 +19,7 @@ class mssqlSink(SQLSink):
     """mssql target sink class."""
     connector_class = mssqlConnector
     dropped_tables = dict()
-    max_size = 10000
+    max_size = 1000
 
     # Copied purely to help with type hints
     @property
@@ -113,24 +113,14 @@ class mssqlSink(SQLSink):
 
         columns = self.column_representation(schema)
 
-        def escape_sql(value):
-
-            if not isinstance(value, str):
-                return value
-
-            return value
-
-        with Timer(self.logger, f"Create record batch."):
+        with Timer(self.logger, f"Create record batch!! Table {full_table_name}"):
             # temporary fix to ensure missing properties are added
             insert_records = []
             for record in records:
                 insert_record = {}
                 for column, field in zip(columns, self.schema["properties"].keys()):
-                    # insert_record[column.name] = record.get(field)
                     if isinstance(record.get(field), bool):
                         insert_record[column.name] = 1 if record.get(field) == True else 0
-                    elif isinstance(record.get(field), str):
-                        insert_record[column.name] = escape_sql(record.get(field))
                     elif isinstance(record.get(field), datetime):
                         insert_record[column.name] = record.get(field).strftime('%Y-%m-%d')
                     else:
@@ -140,7 +130,7 @@ class mssqlSink(SQLSink):
         if self.check_string_key_properties():
            self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } ON")
 
-        with Timer(self.logger, f"Load records in database!!"):
+        with Timer(self.logger, f"Load records in database!! Table {full_table_name}; Records count {len(insert_records)}"):
             self.connection.execute(insert_sql, insert_records)
 
         if self.check_string_key_properties():
@@ -211,6 +201,10 @@ class mssqlSink(SQLSink):
                 join_keys=self.key_properties,
             )
 
+            self.logger.info(f"Dropping temp table as batch is done {self.full_table_name}")
+            self.connector.drop_temp_table_from_table(
+                from_table_name=self.full_table_name
+            )
         else:
             self.bulk_insert_records(
                 full_table_name=self.full_table_name,

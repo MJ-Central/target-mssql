@@ -457,7 +457,7 @@ class mssqlConnector(SQLConnector):
             )
 
         if self._jsonschema_type_check(jsonschema_type, ("integer",)):
-            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.INTEGER())
+            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.BIGINT())
         if self._jsonschema_type_check(jsonschema_type, ("number",)):
             return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.NUMERIC(29, 16))
         if self._jsonschema_type_check(jsonschema_type, ("boolean",)):
@@ -470,6 +470,15 @@ class mssqlConnector(SQLConnector):
             return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
 
         return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
+
+    def drop_temp_table_from_table(self, from_table_name):
+        """Drop the temp table from an existing table, preserving identity columns and default values."""
+
+        try:
+            self.logger.info(f"Dropping existing temp table TMP_{from_table_name.split('.')[-1]}")
+            self.connection.execute(f"DROP TABLE IF EXISTS TMP_{from_table_name.split('.')[-1]};")
+        except Exception as e:
+            self.logger.info(f"No temp table to drop. Error: {e}")
 
     def create_temp_table_from_table(self, from_table_name):
         """Create a temp table from an existing table, preserving identity columns and default values."""
