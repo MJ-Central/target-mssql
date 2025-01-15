@@ -1,5 +1,4 @@
 """mssql target sink class, which handles writing streams."""
-import os
 from __future__ import annotations
 from target_mssql.timer import Timer
 from datetime import datetime
@@ -11,6 +10,7 @@ from singer_sdk.sinks import SQLSink
 from sqlalchemy import Column
 from textwrap import dedent
 import re
+import os
 from singer_sdk.helpers._conformers import replace_leading_digit, snakecase
 
 from target_mssql.connector import mssqlConnector
