@@ -1,6 +1,7 @@
 """mssql target sink class, which handles writing streams."""
-
 from __future__ import annotations
+from target_mssql.timer import Timer
+from datetime import datetime
 
 from typing import Any, Dict, Iterable, List, Optional, Union
 from copy import copy
@@ -18,7 +19,7 @@ class mssqlSink(SQLSink):
     """mssql target sink class."""
     connector_class = mssqlConnector
     dropped_tables = dict()
-    max_size = 1000
+    max_size = 10000
 
     # Copied purely to help with type hints
     @property
@@ -112,19 +113,35 @@ class mssqlSink(SQLSink):
 
         columns = self.column_representation(schema)
 
-        # temporary fix to ensure missing properties are added
-        insert_records = []
-        for record in records:
-            insert_record = {}
-            for column, field in zip(columns, self.schema["properties"].keys()):
-                insert_record[column.name] = record.get(field)
-                # insert_record[column.name] = "" if isinstance(record.get(field), str) and ( "{" in record[field] or "[" in record[field] or "," in record[field] or ":" in record[field] or "/" in record[field] or "(" in record[field]) else record.get(field)
-            insert_records.append(insert_record)
+        def escape_sql(value):
+
+            if not isinstance(value, str):
+                return value
+
+            return value
+
+        with Timer(self.logger, f"Create record batch."):
+            # temporary fix to ensure missing properties are added
+            insert_records = []
+            for record in records:
+                insert_record = {}
+                for column, field in zip(columns, self.schema["properties"].keys()):
+                    # insert_record[column.name] = record.get(field)
+                    if isinstance(record.get(field), bool):
+                        insert_record[column.name] = 1 if record.get(field) == True else 0
+                    elif isinstance(record.get(field), str):
+                        insert_record[column.name] = escape_sql(record.get(field))
+                    elif isinstance(record.get(field), datetime):
+                        insert_record[column.name] = record.get(field).strftime('%Y-%m-%d')
+                    else:
+                        insert_record[column.name] = record.get(field)
+                insert_records.append(insert_record)
 
         if self.check_string_key_properties():
            self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } ON")
 
-        self.connection.execute(insert_sql, insert_records)
+        with Timer(self.logger, f"Load records in database!!"):
+            self.connection.execute(insert_sql, insert_records)
 
         if self.check_string_key_properties():
             self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } OFF")
@@ -181,14 +198,14 @@ class mssqlSink(SQLSink):
             # Insert into temp table
             self.logger.info("Inserting into temp table")
             self.bulk_insert_records(
-                full_table_name=f"#{self.full_table_name.split('.')[-1]}",
+                full_table_name=f"TMP_{self.full_table_name.split('.')[-1]}",
                 schema=conformed_schema,
                 records=context["records"],
             )
             # Merge data from Temp table to main table
             self.logger.info(f"Merging data from temp table to {self.full_table_name}")
             self.merge_upsert_from_table(
-                from_table_name=f"#{self.full_table_name.split('.')[-1]}",
+                from_table_name=f"TMP_{self.full_table_name.split('.')[-1]}",
                 to_table_name=f"{self.full_table_name}",
                 schema=conformed_schema,
                 join_keys=self.key_properties,

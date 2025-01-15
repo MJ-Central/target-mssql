@@ -475,8 +475,8 @@ class mssqlConnector(SQLConnector):
         """Create a temp table from an existing table, preserving identity columns and default values."""
 
         try:
-            self.logger.info(f"Dropping existing temp table #{from_table_name.split('.')[-1]}")
-            self.connection.execute(f"DROP TABLE IF EXISTS #{from_table_name.split('.')[-1]};")
+            self.logger.info(f"Dropping existing temp table TMP_{from_table_name.split('.')[-1]}")
+            self.connection.execute(f"DROP TABLE IF EXISTS TMP_{from_table_name.split('.')[-1]};")
         except Exception as e:
             self.logger.info(f"No temp table to drop. Error: {e}")
 
@@ -521,7 +521,7 @@ class mssqlConnector(SQLConnector):
             column_definitions.append(f"[{col_name}] {col_type}{col_length_str} {identity_str} {col_default}")
 
         create_temp_table_sql = f"""
-            CREATE TABLE #{from_table_name.split(".")[-1]} (
+            CREATE TABLE TMP_{from_table_name.split(".")[-1]} (
                 {", ".join(column_definitions)}
             );
         """
