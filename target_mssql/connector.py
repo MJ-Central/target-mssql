@@ -23,46 +23,6 @@ class mssqlConnector(SQLConnector):
     dropped_tables = dict()
 
 
-    def create_sqlalchemy_connection(self) -> sqlalchemy.engine.Connection:
-        """Return a new SQLAlchemy connection using the provided config.
-
-        By default this will create using the sqlalchemy `stream_results=True` option
-        described here:
-
-        https://docs.sqlalchemy.org/en/14/core/connections.html#using-server-side-cursors-a-k-a-stream-results
-
-        Developers may override this method if their provider does not support
-        server side cursors (`stream_results`) or in order to use different
-        configurations options when creating the connection object.
-
-        Returns:
-            A newly created SQLAlchemy engine object.
-        """
-        return (
-            self.create_sqlalchemy_engine()
-            .connect()
-            .execution_options(stream_results=True, autocommit=False)
-        )
-
-    def create_sqlalchemy_engine(self) -> sqlalchemy.engine.Engine:
-        """Return a new SQLAlchemy engine using the provided config.
-
-        Developers can generally override just one of the following:
-        `sqlalchemy_engine`, sqlalchemy_url`.
-
-        Returns:
-            A newly created SQLAlchemy engine object.
-        """
-        engine = sqlalchemy.create_engine(
-            self.sqlalchemy_url, 
-            fast_executemany=True,
-            echo=False,
-            isolation_level=None)
-        
-        self.sqlalchemy_engine = engine
-
-        return engine
-
     def table_exists(self, full_table_name: str) -> bool:
         """Determine if the target table already exists.
 
@@ -82,7 +42,7 @@ class mssqlConnector(SQLConnector):
 
         return cast(
             bool,
-            sqlalchemy.inspect(self.sqlalchemy_engine).has_table(full_table_name, **kwargs),
+            sqlalchemy.inspect(self._engine).has_table(full_table_name, **kwargs),
         )
 
     def prepare_table(
@@ -239,7 +199,7 @@ class mssqlConnector(SQLConnector):
 
         _ = sqlalchemy.Table(full_table_name, meta, *columns, **kwargs)
         meta.create_all(self._engine)
-        self.logger.info(f"Create table with cols = {columns}")
+        # self.logger.info(f"Create table with cols = {columns}")
 
     def merge_sql_types(  # noqa
         self, sql_types: list[sqlalchemy.types.TypeEngine]
@@ -461,7 +421,7 @@ class mssqlConnector(SQLConnector):
 
             maxlength = jsonschema_type.get("maxLength")
             return cast(
-                sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR(maxlength)
+                sqlalchemy.types.TypeEngine, sqlalchemy.types.NVARCHAR(maxlength)
             )
 
         if self._jsonschema_type_check(jsonschema_type, ("integer",)):
@@ -469,13 +429,13 @@ class mssqlConnector(SQLConnector):
         if self._jsonschema_type_check(jsonschema_type, ("number",)):
             return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.NUMERIC(29, 16))
         if self._jsonschema_type_check(jsonschema_type, ("boolean",)):
-            return cast(sqlalchemy.types.TypeEngine, mssql.VARCHAR(1))
+            return cast(sqlalchemy.types.TypeEngine, mssql.NVARCHAR(1))
 
         if self._jsonschema_type_check(jsonschema_type, ("object",)):
-            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
+            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.NVARCHAR())
 
         if self._jsonschema_type_check(jsonschema_type, ("array",)):
-            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
+            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.NVARCHAR())
 
         return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
 
@@ -490,10 +450,13 @@ class mssqlConnector(SQLConnector):
 
     def create_temp_table_from_table(self, from_table_name):
         """Create a temp table from an existing table, preserving identity columns and default values."""
+        parts = from_table_name.split(".")
+        schema = parts[0] + "." if "." in from_table_name else ""
+        table = "temp_" + parts[-1]
 
         try:
-            self.logger.info(f"Dropping existing temp table TMP_{from_table_name.split('.')[-1]}")
-            self.connection.execute(f"DROP TABLE IF EXISTS TMP_{from_table_name.split('.')[-1]};")
+            self.logger.info(f"Dropping existing temp table {schema}{table}")
+            self.connection.execute(f"DROP TABLE IF EXISTS {schema}{table};")
         except Exception as e:
             self.logger.info(f"No temp table to drop. Error: {e}")
 
@@ -538,7 +501,7 @@ class mssqlConnector(SQLConnector):
             column_definitions.append(f"[{col_name}] {col_type}{col_length_str} {identity_str} {col_default}")
 
         create_temp_table_sql = f"""
-            CREATE TABLE TMP_{from_table_name.split(".")[-1]} (
+            CREATE TABLE {schema}{table} (
                 {", ".join(column_definitions)}
             );
         """

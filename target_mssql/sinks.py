@@ -14,12 +14,14 @@ from singer_sdk.helpers._conformers import replace_leading_digit, snakecase
 
 from target_mssql.connector import mssqlConnector
 
+import pandas as pd
+import subprocess
 
 class mssqlSink(SQLSink):
     """mssql target sink class."""
     connector_class = mssqlConnector
     dropped_tables = dict()
-    max_size = 1000
+    max_size = 10_000
 
     # Copied purely to help with type hints
     @property
@@ -102,39 +104,45 @@ class mssqlSink(SQLSink):
             True if table exists, False if not, None if unsure or undetectable.
         """
         schema = self.conform_schema(schema)
-        insert_sql = self.generate_insert_statement(
-            full_table_name,
-            schema,
-        )
-        if isinstance(insert_sql, str):
-            insert_sql = sqlalchemy.text(insert_sql)
-
-        self.logger.info("Inserting with SQL: %s", insert_sql)
+        self.logger.info("Inserting to temp table")
 
         columns = self.column_representation(schema)
 
-        with Timer(self.logger, f"Create record batch!! Table {full_table_name}"):
-            # temporary fix to ensure missing properties are added
-            insert_records = []
-            for record in records:
-                insert_record = {}
-                for column, field in zip(columns, self.schema["properties"].keys()):
-                    if isinstance(record.get(field), bool):
-                        insert_record[column.name] = 1 if record.get(field) == True else 0
-                    elif isinstance(record.get(field), datetime):
-                        insert_record[column.name] = record.get(field).strftime('%Y-%m-%d')
-                    else:
-                        insert_record[column.name] = record.get(field)
-                insert_records.append(insert_record)
+        # temporary fix to ensure missing properties are added
+        insert_records = []
+        for record in records:
+            insert_record = {}
+            for column, field in zip(columns, self.schema["properties"].keys()):
+                if "boolean" in self.schema["properties"][field]['type']:
+                    # cast booleans
+                    insert_record[column.name] = "1" if record.get(field) else "0"
+                elif record.get(field) and self.schema["properties"][field].get("format") == "date-time":
+                    insert_record[column.name] = record.get(field).strftime('%Y-%m-%d %H:%M:%S.%f')
+                else:
+                    insert_record[column.name] = record.get(field)
 
-        if self.check_string_key_properties():
-           self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } ON")
+            insert_records.append(insert_record)
+        
+        # build the dataframe
+        df = pd.DataFrame(insert_records)
+        df = df.replace(r"[\n\r]", " ", regex=True)
+        df.to_csv("data.csv", index=False, header=False, sep="\t")
 
-        with Timer(self.logger, f"Load records in database!! Table {full_table_name}; Records count {len(insert_records)}"):
-            self.connection.execute(insert_sql, insert_records)
+        database = self.config.get("database")
+        db_schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
+        table_name = full_table_name.split(".")[-1]
+        host = self.config.get("host")
+        user = self.config.get("user")
+        password = self.config.get("password")
 
-        if self.check_string_key_properties():
-            self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } OFF")
+        # run bcp
+        bcp_cmd =f'bcp {database}.{db_schema}.{table_name} in data.csv -S {host} -U {user} -P {password} -c -t"\t"  -e "error_log.txt"'
+        result = subprocess.run(
+            bcp_cmd,
+            shell=True, capture_output=True, text=True
+        )
+        self.logger.info(result.stdout)
+
 
         if isinstance(records, list):
             return len(records)  # If list, we can quickly return record count.
@@ -186,15 +194,19 @@ class mssqlSink(SQLSink):
 
             # Insert into temp table
             self.logger.info("Inserting into temp table")
+            parts = self.full_table_name.split('.')
+            db_schema = parts[0] + "." if "." in self.full_table_name else ""
+            temp_table = "temp_" + parts[-1]
+
             self.bulk_insert_records(
-                full_table_name=f"TMP_{self.full_table_name.split('.')[-1]}",
+                full_table_name=f"{db_schema}{temp_table}",
                 schema=conformed_schema,
                 records=context["records"],
             )
             # Merge data from Temp table to main table
             self.logger.info(f"Merging data from temp table to {self.full_table_name}")
             self.merge_upsert_from_table(
-                from_table_name=f"TMP_{self.full_table_name.split('.')[-1]}",
+                from_table_name=f"{db_schema}{temp_table}",
                 to_table_name=f"{self.full_table_name}",
                 schema=conformed_schema,
                 join_keys=self.key_properties,
