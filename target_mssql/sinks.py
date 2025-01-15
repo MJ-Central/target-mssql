@@ -18,6 +18,7 @@ class mssqlSink(SQLSink):
     """mssql target sink class."""
     connector_class = mssqlConnector
     dropped_tables = dict()
+    max_size = 1000
 
     # Copied purely to help with type hints
     @property
@@ -117,6 +118,7 @@ class mssqlSink(SQLSink):
             insert_record = {}
             for column, field in zip(columns, self.schema["properties"].keys()):
                 insert_record[column.name] = record.get(field)
+                # insert_record[column.name] = "" if isinstance(record.get(field), str) and ( "{" in record[field] or "[" in record[field] or "," in record[field] or ":" in record[field] or "/" in record[field] or "(" in record[field]) else record.get(field)
             insert_records.append(insert_record)
 
         if self.check_string_key_properties():

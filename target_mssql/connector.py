@@ -76,10 +76,10 @@ class mssqlConnector(SQLConnector):
             )
             return
 
-        for property_name, property_def in schema["properties"].items():
-            self.prepare_column(
-                full_table_name, property_name, self.to_sql_type(property_def)
-            )
+        # for property_name, property_def in schema["properties"].items():
+        #     self.prepare_column(
+        #         full_table_name, property_name, self.to_sql_type(property_def)
+        #     )
 
     def create_table_with_records(
         self,
@@ -461,7 +461,7 @@ class mssqlConnector(SQLConnector):
         """
 
         columns = self.connection.execute(get_columns_query).fetchall()
-        self.logger.info(f"Fetched columns: {columns}")
+        # self.logger.info(f"Fetched columns: {columns}")
 
         # Construct the CREATE TABLE statement
         column_definitions = []
@@ -490,5 +490,5 @@ class mssqlConnector(SQLConnector):
             );
         """
 
-        self.logger.info(f"Generated SQL for temp table:\n{create_temp_table_sql}")
+        # self.logger.info(f"Generated SQL for temp table:\n{create_temp_table_sql}")
         self.connection.execute(create_temp_table_sql)
