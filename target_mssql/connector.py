@@ -181,10 +181,10 @@ class mssqlConnector(SQLConnector):
 
             if is_primary_key:
                 # In MSSQL, Primary keys can not be more than 900 bytes. Setting at 255
-                if isinstance(columntype, sqlalchemy.types.VARCHAR):
+                if isinstance(columntype, sqlalchemy.types.VARCHAR) or isinstance(columntype, sqlalchemy.types.NVARCHAR):
                     columntype = sqlalchemy.types.VARCHAR(255)
-                elif isinstance(columntype, sqlalchemy.types.BIGINT):
-                    columntype = sqlalchemy.types.INTEGER()
+                # elif isinstance(columntype, sqlalchemy.types.BIGINT):
+                #     columntype = sqlalchemy.types.INTEGER()
 
             columns.append(
                 sqlalchemy.Column(
