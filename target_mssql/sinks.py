@@ -157,7 +157,6 @@ class mssqlSink(SQLSink):
             )
         return columns
 
-
     def process_batch(self, context: dict) -> None:
         """Process a batch with the given batch context.
         Writes a batch to the SQL target. Developers may override this method
