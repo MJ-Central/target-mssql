@@ -53,10 +53,15 @@ class mssqlConnector(SQLConnector):
         Returns:
             A newly created SQLAlchemy engine object.
         """
-        return sqlalchemy.create_engine(
+        engine = sqlalchemy.create_engine(
             self.sqlalchemy_url, 
             fast_executemany=True,
-            echo=False)
+            echo=False,
+            isolation_level=None)
+        
+        self.sqlalchemy_engine = engine
+
+        return engine
 
     def table_exists(self, full_table_name: str) -> bool:
         """Determine if the target table already exists.
@@ -75,7 +80,7 @@ class mssqlConnector(SQLConnector):
 
         return cast(
             bool,
-            sqlalchemy.inspect(self._engine).has_table(full_table_name, **kwargs),
+            sqlalchemy.inspect(self.sqlalchemy_engine).has_table(full_table_name, **kwargs),
         )
 
     def prepare_table(
