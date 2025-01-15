@@ -22,6 +22,42 @@ class mssqlConnector(SQLConnector):
     allow_temp_tables: bool = True  # Whether temp tables are supported.
     dropped_tables = dict()
 
+
+    def create_sqlalchemy_connection(self) -> sqlalchemy.engine.Connection:
+        """Return a new SQLAlchemy connection using the provided config.
+
+        By default this will create using the sqlalchemy `stream_results=True` option
+        described here:
+
+        https://docs.sqlalchemy.org/en/14/core/connections.html#using-server-side-cursors-a-k-a-stream-results
+
+        Developers may override this method if their provider does not support
+        server side cursors (`stream_results`) or in order to use different
+        configurations options when creating the connection object.
+
+        Returns:
+            A newly created SQLAlchemy engine object.
+        """
+        return (
+            self.create_sqlalchemy_engine()
+            .connect()
+            .execution_options(stream_results=True, autocommit=False)
+        )
+
+    def create_sqlalchemy_engine(self) -> sqlalchemy.engine.Engine:
+        """Return a new SQLAlchemy engine using the provided config.
+
+        Developers can generally override just one of the following:
+        `sqlalchemy_engine`, sqlalchemy_url`.
+
+        Returns:
+            A newly created SQLAlchemy engine object.
+        """
+        return sqlalchemy.create_engine(
+            self.sqlalchemy_url, 
+            fast_executemany=True,
+            echo=False)
+
     def table_exists(self, full_table_name: str) -> bool:
         """Determine if the target table already exists.
 
