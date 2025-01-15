@@ -123,11 +123,6 @@ class mssqlSink(SQLSink):
                     insert_record[column.name] = record.get(field)
 
             insert_records.append(insert_record)
-        
-        # build the dataframe
-        df = pd.DataFrame(insert_records)
-        df = df.replace(r"[\n\r]", " ", regex=True)
-        df.to_csv("data.csv", index=False, header=False, sep="\t")
 
         database = self.config.get("database")
         db_schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
@@ -136,9 +131,14 @@ class mssqlSink(SQLSink):
         user = self.config.get("user")
         password = self.config.get("password")
 
+        # build the dataframe
+        df = pd.DataFrame(insert_records)
+        df = df.replace(r"[\n\r\t]", " ", regex=True)
+        df.to_csv(f"{table_name}.csv", index=False, header=False, sep="\t")
+
         # run bcp
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
-        bcp_cmd =f'{bcp} {database}.{db_schema}.{table_name} in data.csv -S {host} -U {user} -P {password} -c -t"\t"  -e "error_log.txt"'
+        bcp_cmd =f'{bcp} {database}.{db_schema}.{table_name} in {table_name}.csv -S {host} -U {user} -P {password} -c -t"\t"  -e "error_log.txt"'
         result = subprocess.run(
             bcp_cmd,
             shell=True, capture_output=True, text=True
