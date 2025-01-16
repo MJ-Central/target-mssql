@@ -64,11 +64,11 @@ class mssqlConnector(SQLConnector):
         """
         # NOTE: Force create the table
         # TODO: remove this
-        if not self.dropped_tables.get(full_table_name, False):
-            self.logger.info(f"Force dropping the table {full_table_name}!")
-            with self.connection.begin():  # Starts a transaction
-                self.connection.execute(f"DROP TABLE IF EXISTS {full_table_name};")
-            self.dropped_tables[full_table_name] = True
+        # if not self.dropped_tables.get(full_table_name, False):
+        #     self.logger.info(f"Force dropping the table {full_table_name}!")
+        #     with self.connection.begin():  # Starts a transaction
+        #         self.connection.execute(f"DROP TABLE IF EXISTS {full_table_name};")
+        #     self.dropped_tables[full_table_name] = True
 
         if not self.table_exists(full_table_name=full_table_name):
             self.create_empty_table(
