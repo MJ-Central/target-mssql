@@ -264,7 +264,7 @@ class mssqlSink(SQLSink):
         )  # noqa
 
         merge_sql = f"""
-            MERGE INTO {to_table_name} AS target
+            MERGE INTO [{to_table_name}] AS target
             USING {from_table_name} AS temp
             ON {join_condition}
             WHEN MATCHED THEN
@@ -277,12 +277,12 @@ class mssqlSink(SQLSink):
 
         def do_merge(conn, merge_sql, is_check_string_key_properties):
             if is_check_string_key_properties:
-                conn.execute(f"SET IDENTITY_INSERT { to_table_name } ON")
+                conn.execute(f"SET IDENTITY_INSERT [{to_table_name}] ON")
             
             conn.execute(merge_sql)
 
             if is_check_string_key_properties:
-                conn.execute(f"SET IDENTITY_INSERT { to_table_name } OFF")
+                conn.execute(f"SET IDENTITY_INSERT [{to_table_name}] OFF")
 
         is_check_string_key_properties = self.check_string_key_properties()
         self.connection.transaction(do_merge, merge_sql, is_check_string_key_properties)
