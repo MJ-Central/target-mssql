@@ -23,6 +23,22 @@ class mssqlConnector(SQLConnector):
     dropped_tables = dict()
 
 
+    def create_sqlalchemy_engine(self) -> sqlalchemy.engine.Engine:
+        """Return a new SQLAlchemy engine using the provided config.
+        Developers can generally override just one of the following:
+        `sqlalchemy_engine`, sqlalchemy_url`.
+        Returns:
+            A newly created SQLAlchemy engine object.
+        """
+        engine = sqlalchemy.create_engine(
+            self.sqlalchemy_url,
+            echo=False,
+            pool_pre_ping=True,
+            pool_recycle=3600
+        )
+
+        return engine
+
     def table_exists(self, full_table_name: str) -> bool:
         """Determine if the target table already exists.
 
