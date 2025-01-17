@@ -67,7 +67,8 @@ class mssqlConnector(SQLConnector):
         if not self.dropped_tables.get(full_table_name, False):
             self.logger.info(f"Force dropping the table {full_table_name}!")
             with self.connection.begin():  # Starts a transaction
-                self.connection.execute(f"DROP TABLE IF EXISTS {full_table_name};")
+                drop_table = '.'.join([f'[{x}]' for x in full_table_name.split('.')])
+                self.connection.execute(f"DROP TABLE IF EXISTS {drop_table};")
             self.dropped_tables[full_table_name] = True
 
         if not self.table_exists(full_table_name=full_table_name):
@@ -448,6 +449,7 @@ class mssqlConnector(SQLConnector):
         try:
             self.logger.info(f"Dropping existing temp table {temp_table}")
             with self.connection.begin():  # Starts a transaction
+                temp_table = '.'.join([f'[{x}]' for x in temp_table.split('.')])
                 self.connection.execute(f"DROP TABLE IF EXISTS {temp_table};")
         except Exception as e:
             self.logger.info(f"No temp table to drop. Error: {e}")
@@ -458,11 +460,7 @@ class mssqlConnector(SQLConnector):
         schema = parts[0] + "." if "." in from_table_name else ""
         table = "temp_" + parts[-1]
 
-        try:
-            self.logger.info(f"Dropping existing temp table {schema}{table}")
-            self.connection.execute(f"DROP TABLE IF EXISTS {schema}{table};")
-        except Exception as e:
-            self.logger.info(f"No temp table to drop. Error: {e}")
+        self.drop_temp_table_from_table(f"{schema}{table}")
 
         # Query to get column definitions, including identity property
         get_columns_query = f"""
