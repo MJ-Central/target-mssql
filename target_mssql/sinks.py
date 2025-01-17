@@ -263,8 +263,11 @@ class mssqlSink(SQLSink):
             ]
         )  # noqa
 
+        to_schema = to_table_name.split(".")[0] if "." in to_table_name else "dbo"
+        to_table = to_table_name.split(".")[-1]
+
         merge_sql = f"""
-            MERGE INTO [{to_table_name}] AS target
+            MERGE INTO {to_schema}.[{to_table}] AS target
             USING {from_table_name} AS temp
             ON {join_condition}
             WHEN MATCHED THEN
@@ -275,14 +278,16 @@ class mssqlSink(SQLSink):
                 VALUES ({", ".join([f"temp.[{key}]" for key in schema["properties"].keys()])});
         """
 
+        self.logger.info(f"Merge SQL {merge_sql}")
+
         def do_merge(conn, merge_sql, is_check_string_key_properties):
             if is_check_string_key_properties:
-                conn.execute(f"SET IDENTITY_INSERT [{to_table_name}] ON")
+                conn.execute(f"SET IDENTITY_INSERT {to_schema}[{to_table}] ON")
             
             conn.execute(merge_sql)
 
             if is_check_string_key_properties:
-                conn.execute(f"SET IDENTITY_INSERT [{to_table_name}] OFF")
+                conn.execute(f"SET IDENTITY_INSERT {to_schema}[{to_table}] OFF")
 
         is_check_string_key_properties = self.check_string_key_properties()
         self.connection.transaction(do_merge, merge_sql, is_check_string_key_properties)
