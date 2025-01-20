@@ -282,12 +282,12 @@ class mssqlSink(SQLSink):
 
         def do_merge(conn, merge_sql, is_check_string_key_properties):
             if is_check_string_key_properties:
-                conn.execute(f"SET IDENTITY_INSERT {to_schema}[{to_table}] ON")
+                conn.execute(f"SET IDENTITY_INSERT {to_schema}.[{to_table}] ON")
             
             conn.execute(merge_sql)
 
             if is_check_string_key_properties:
-                conn.execute(f"SET IDENTITY_INSERT {to_schema}[{to_table}] OFF")
+                conn.execute(f"SET IDENTITY_INSERT {to_schema}.[{to_table}] OFF")
 
         is_check_string_key_properties = self.check_string_key_properties()
         self.connection.transaction(do_merge, merge_sql, is_check_string_key_properties)
