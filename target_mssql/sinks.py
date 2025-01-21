@@ -22,6 +22,7 @@ class mssqlSink(SQLSink):
     """mssql target sink class."""
     connector_class = mssqlConnector
     dropped_tables = dict()
+    table_column_order = dict()
     max_size = 10_000
 
     # Copied purely to help with type hints
@@ -104,25 +105,46 @@ class mssqlSink(SQLSink):
         Returns:
             True if table exists, False if not, None if unsure or undetectable.
         """
-        schema = self.conform_schema(schema)
+
+        # already conformed schema?
+        # schema = self.conform_schema(schema)
         self.logger.info("Inserting to temp table")
 
+        if full_table_name not in self.table_column_order:
+            self.table_column_order[full_table_name] = self.connector.get_column_order(full_table_name)
+
+        default_column_order = self.table_column_order[full_table_name]
         columns = self.column_representation(schema)
 
         # temporary fix to ensure missing properties are added
         insert_records = []
+        missing_db_columns = set()
         for record in records:
             insert_record = {}
-            for column, field in zip(columns, self.schema["properties"].keys()):
-                if "boolean" in self.schema["properties"][field]['type']:
+            for db_column in default_column_order:
+                column = columns.get(db_column, None)
+                field = db_column
+
+                if column is None:
+                    missing_db_columns.add(db_column)
+
+                    # Use case where field map column was removed by the user.
+                    insert_record[db_column] = ""
+                    continue
+
+                if "boolean" in schema["properties"][field]['type']:
                     # cast booleans
                     insert_record[column.name] = "1" if record.get(field) else "0"
-                elif record.get(field) and self.schema["properties"][field].get("format") == "date-time":
+                elif record.get(field) and schema["properties"][field].get("format") == "date-time":
                     insert_record[column.name] = record.get(field).strftime('%Y-%m-%d %H:%M:%S.%f')
                 else:
                     insert_record[column.name] = record.get(field)
 
             insert_records.append(insert_record)
+
+        for db_column in missing_db_columns:
+            self.logger.info(
+                f"Column {db_column} exists in table {full_table_name} but missing in singer SCHEMA, user must have deselected this column")
 
         database = self.config.get("database")
         db_schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
@@ -139,8 +161,9 @@ class mssqlSink(SQLSink):
         # run bcp
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
         db = f'"[{database}].[{db_schema}].[{table_name}]"'
-        bcp_cmd =f'{bcp} {db} in {table_name}.csv -S "{host}" -U "{user}" -P "{password}" -c -t"\t"  -e "error_log.txt"'
-        self.logger.info(f'{bcp} {db} in {table_name}.csv -S {host} -U {user} -c -t"\t"  -e "error_log.txt"')
+        bcp_cmd = f'{bcp} {db} in {table_name}.csv -S "{host}" -U "{user}" -P "{password}" -c -t"\t"  -e "error_log.txt"'
+        bcp_log = f'{bcp} {db} in {table_name}.csv -S "{host}" -U "[user]" -P "[password]" -c -t"\t"  -e "error_log.txt"'
+        self.logger.info( f" BCP Command: {bcp_log}")
         result = subprocess.run(
             bcp_cmd,
             shell=True, capture_output=True, text=True
@@ -156,19 +179,19 @@ class mssqlSink(SQLSink):
         return None  # Unknown record count.
 
     def column_representation(
-        self,
-        schema: dict,
-    ) -> List[Column]:
-        """Returns a sql alchemy table representation for the current schema."""
-        columns: list[Column] = []
+            self,
+            schema: dict,
+    ) -> Dict[str, Column]:
+        """Returns a dictionary of SQLAlchemy column representations for the current schema."""
+        columns: Dict[str, Column] = {}
         conformed_properties = self.conform_schema(schema)["properties"]
+
         for property_name, property_jsonschema in conformed_properties.items():
-            columns.append(
-                Column(
-                    property_name,
-                    self.connector.to_sql_type(property_jsonschema),
-                )
+            columns[property_name] = Column(
+                property_name,
+                self.connector.to_sql_type(property_jsonschema),
             )
+
         return columns
 
     def process_batch(self, context: dict) -> None:
@@ -183,6 +206,7 @@ class mssqlSink(SQLSink):
         conformed_schema = self.conform_schema(self.schema)
 
         if self.key_properties:
+
             self.logger.info(f"Preparing table {self.full_table_name}")
 
             self.connector.prepare_table(

@@ -61,6 +61,70 @@ class mssqlConnector(SQLConnector):
             sqlalchemy.inspect(self._engine).has_table(full_table_name, **kwargs),
         )
 
+    def prepare_column(
+            self,
+            full_table_name: str,
+            column_name: str,
+            sql_type: sqlalchemy.types.TypeEngine,
+    ) -> None:
+
+        schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
+        table_name = full_table_name.split(".")[-1]
+
+        """
+        Ensure a column exists in the table with the correct data type.
+        If the column does not exist, create it.
+
+        :param full_table_name: The full table name (schema.table_name).
+        :param column_name: The name of the column to ensure.
+        :param sql_type: The SQLAlchemy type to enforce.
+        """
+        # Check if the column exists
+        column_exists_query = f"""
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = '{schema}'
+          AND TABLE_NAME = '{table_name}'
+          AND COLUMN_NAME = '{column_name}'
+        """
+        result = self.connection.execute(column_exists_query).scalar()
+
+        if result == 0:
+            # Add the column if it does not exist
+            alter_sql = f"ALTER TABLE {schema}.[{table_name}] ADD [{column_name}] {sql_type.compile(dialect=mssql.dialect())}"
+            with self.connection.begin():
+                self.connection.execute(alter_sql)
+            self.logger.info(f"Added column {column_name} to {full_table_name}.")
+
+    from sqlalchemy import create_engine
+
+    def get_column_order(self, full_table_name):
+
+        schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
+        table_name = full_table_name.split(".")[-1]
+
+        # SQL query to get the column order
+        query = f"""
+        SELECT 
+            COLUMN_NAME
+        FROM 
+            INFORMATION_SCHEMA.COLUMNS
+        WHERE 
+            TABLE_SCHEMA = '{schema}' AND
+            TABLE_NAME = '{table_name}'
+        ORDER BY 
+            ORDINAL_POSITION;
+        """
+
+        with self.connection.begin():
+            result = self.connection.execute(query)
+
+            # Fetch all the results and return the column names in order
+            column_order = [row['COLUMN_NAME'] for row in result]
+
+            # Return the column order as a list
+            return column_order
+
     def prepare_table(
         self,
         full_table_name: str,
@@ -97,10 +161,10 @@ class mssqlConnector(SQLConnector):
             )
             return
 
-        # for property_name, property_def in schema["properties"].items():
-        #     self.prepare_column(
-        #         full_table_name, property_name, self.to_sql_type(property_def)
-        #     )
+        for property_name, property_def in schema["properties"].items():
+            self.prepare_column(
+                full_table_name, property_name, self.to_sql_type(property_def)
+            )
 
     def create_table_with_records(
         self,
