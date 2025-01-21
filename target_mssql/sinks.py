@@ -22,7 +22,17 @@ class mssqlSink(SQLSink):
     """mssql target sink class."""
     connector_class = mssqlConnector
     dropped_tables = dict()
+
+
+    # Maintaining a dict that hold the order of columns in all streams being loaded.
+    # This is a cache so we do not need to recreate it for each batch.
     table_column_order = dict()
+
+    # This dict will hold column name mapping for all tables from
+    # conformed column name to original schema column name.
+    # e.g. listId -> list_id, listId -> list___id
+    conform_column_map = dict()
+
     max_size = 10_000
 
     # Copied purely to help with type hints
@@ -106,14 +116,19 @@ class mssqlSink(SQLSink):
             True if table exists, False if not, None if unsure or undetectable.
         """
 
-        # already conformed schema?
-        # schema = self.conform_schema(schema)
-        self.logger.info("Inserting to temp table")
+        self.logger.info(f"Inserting to temp table {full_table_name}")
 
+        # create order map only once for each table.
         if full_table_name not in self.table_column_order:
             self.table_column_order[full_table_name] = self.connector.get_column_order(full_table_name)
 
+        # create the map only once for each table.
+        if full_table_name not in self.conform_column_map:
+            self.conform_column_map[full_table_name] = self.get_conform_column_map(self.schema)
+        
         default_column_order = self.table_column_order[full_table_name]
+        column_map = self.conform_column_map[full_table_name]
+        
         columns = self.column_representation(schema)
 
         # temporary fix to ensure missing properties are added
@@ -123,7 +138,10 @@ class mssqlSink(SQLSink):
             insert_record = {}
             for db_column in default_column_order:
                 column = columns.get(db_column, None)
-                field = db_column
+
+                # Field is the property name is un-conformed schema.
+                # This is because data.singer file records are using un-conformed schema.
+                field = column_map.get(db_column, None)
 
                 if column is None:
                     missing_db_columns.add(db_column)
@@ -132,10 +150,10 @@ class mssqlSink(SQLSink):
                     insert_record[db_column] = ""
                     continue
 
-                if "boolean" in schema["properties"][field]['type']:
+                if "boolean" in self.schema["properties"][field]['type']:
                     # cast booleans
                     insert_record[column.name] = "1" if record.get(field) else "0"
-                elif record.get(field) and schema["properties"][field].get("format") == "date-time":
+                elif record.get(field) and self.schema["properties"][field].get("format") == "date-time":
                     insert_record[column.name] = record.get(field).strftime('%Y-%m-%d %H:%M:%S.%f')
                 else:
                     insert_record[column.name] = record.get(field)
@@ -177,6 +195,21 @@ class mssqlSink(SQLSink):
             return len(records)  # If list, we can quickly return record count.
 
         return None  # Unknown record count.
+
+    def get_conform_column_map(self, schema: dict) -> dict:
+        """Return dict that maps conformed db col names to un-conformed column names.
+
+        Args:
+            schema: JSON schema dictionary.
+
+        Returns:
+            a dict that maps conformed db col names to un-conformed column names.
+        """
+        conformed_schema = copy(schema)
+        return {
+            self.conform_name(key): key for key in conformed_schema["properties"].keys()
+        }
+
 
     def column_representation(
             self,
