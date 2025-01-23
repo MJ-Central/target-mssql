@@ -7,7 +7,7 @@ import urllib.parse
 from singer_sdk.helpers._typing import get_datelike_property_type
 from singer_sdk.sinks import SQLConnector
 from sqlalchemy.dialects import mssql
-from metadata import write_event
+from target_mssql.metadata import write_event
 
 
 class mssqlConnector(SQLConnector):
