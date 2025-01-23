@@ -7,6 +7,7 @@ import urllib.parse
 from singer_sdk.helpers._typing import get_datelike_property_type
 from singer_sdk.sinks import SQLConnector
 from sqlalchemy.dialects import mssql
+from metadata import write_event
 
 
 class mssqlConnector(SQLConnector):
@@ -166,6 +167,17 @@ class mssqlConnector(SQLConnector):
                 full_table_name, property_name, self.to_sql_type(property_def)
             )
 
+    def prepare_schema(self, schema_name: str) -> None:
+        """Create the target database schema.
+
+        Args:
+            schema_name: The target schema name.
+        """
+        schema_exists = self.schema_exists(schema_name)
+        if not schema_exists:
+            write_event({"event": "SCHEMA_CREATED", "name": schema_name})
+            self.create_schema(schema_name)
+
     def create_table_with_records(
         self,
         full_table_name: Optional[str],
@@ -277,12 +289,16 @@ class mssqlConnector(SQLConnector):
 
         kwargs = dict()
 
-        if "." in full_table_name:
-            kwargs["schema"] = full_table_name.split(".")[0]
-            full_table_name = full_table_name.split(".")[1]
+        schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
+        full_table_name = full_table_name.split(".")[-1]
+
+        kwargs["schema"] = schema
 
         _ = sqlalchemy.Table(full_table_name, meta, *columns, **kwargs)
         meta.create_all(self._engine)
+
+        write_event({"event": "TABLE_CREATED", "name": full_table_name, "schema": schema})
+
         # self.logger.info(f"Create table with cols = {columns}")
 
     def merge_sql_types(  # noqa
