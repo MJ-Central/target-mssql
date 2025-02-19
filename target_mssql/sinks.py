@@ -17,6 +17,8 @@ from target_mssql.connector import mssqlConnector
 
 import pandas as pd
 import subprocess
+import collections
+import hashlib
 
 class mssqlSink(SQLSink):
     """mssql target sink class."""
@@ -206,9 +208,20 @@ class mssqlSink(SQLSink):
             a dict that maps conformed db col names to un-conformed column names.
         """
         conformed_schema = copy(schema)
-        return {
-            self.conform_name(key): key for key in conformed_schema["properties"].keys()
-        }
+        conformed_names = [self.conform_name(key) for key in conformed_schema["properties"].keys()]
+        duplicates = [item for item, count in collections.Counter(conformed_names).items() if count > 1]
+
+        columns = {}
+        for key in conformed_schema["properties"].keys():
+            conformed_name = self.conform_name(key)
+            if conformed_name in duplicates:
+                hash = self.hash_name(key)
+                new_key = f"{conformed_name}_{hash}"
+                columns[new_key] = key
+            else:
+                columns[conformed_name] = key
+        
+        return columns
 
 
     def column_representation(
@@ -436,3 +449,27 @@ class mssqlSink(SQLSink):
                 continue
             if value.get("type") == "string" or set(value.get("type")) == {"string", "null"}:
                 self.connection.execute(f"ALTER TABLE {full_table_name} ALTER COLUMN {key} VARCHAR(MAX);")
+    
+    def hash_name(self, name):
+        return hashlib.md5(name.encode()).hexdigest()
+
+    def conform_schema(self, schema: dict) -> dict:
+        conformed_schema = copy(schema)
+        conformed_property_names = {
+            key: self.conform_name(key) for key in conformed_schema["properties"].keys()
+        }
+
+        duplicates = [item for item, count in collections.Counter(conformed_property_names.values()).items() if count > 1]
+        
+        for key,value in conformed_property_names.items():
+            if value in duplicates:
+                hash = self.hash_name(key)
+                new_name = f"{value}_{hash}"
+                conformed_property_names[key] = new_name
+
+        self._check_conformed_names_not_duplicated(conformed_property_names)
+        conformed_schema["properties"] = {
+            conformed_property_names[key]: value
+            for key, value in conformed_schema["properties"].items()
+        }
+        return conformed_schema
