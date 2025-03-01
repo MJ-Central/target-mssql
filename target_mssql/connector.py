@@ -158,14 +158,13 @@ class mssqlConnector(SQLConnector):
             partition_keys: list of partition keys.
             as_temp_table: True to create a temp table.
         """
-        # NOTE: Force create the table
-        # TODO: remove this
-        # if not self.dropped_tables.get(full_table_name, False):
-        #     self.logger.info(f"Force dropping the table {full_table_name}!")
-        #     with self.connection.begin():  # Starts a transaction
-        #         drop_table = '.'.join([f'[{x}]' for x in full_table_name.split('.')])
-        #         self.connection.execute(f"DROP TABLE IF EXISTS {drop_table};")
-        #     self.dropped_tables[full_table_name] = True
+        # NOTE: Force create the table if truncate flag is on
+        if self.config.get("truncate") and not self.dropped_tables.get(full_table_name, False):
+            self.logger.info(f"Force dropping the table {full_table_name}!")
+            with self.connection.begin():  # Starts a transaction
+                drop_table = '.'.join([f'[{x}]' for x in full_table_name.split('.')])
+                self.connection.execute(f"DROP TABLE IF EXISTS {drop_table};")
+            self.dropped_tables[full_table_name] = True
 
         if not self.table_exists(full_table_name=full_table_name):
             self.create_empty_table(
