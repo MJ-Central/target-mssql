@@ -3,9 +3,12 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional, cast
 
 import sqlalchemy
+import urllib.parse
 from singer_sdk.helpers._typing import get_datelike_property_type
 from singer_sdk.sinks import SQLConnector
 from sqlalchemy.dialects import mssql
+from target_mssql.metadata import write_event
+from sqlalchemy import text
 
 
 class mssqlConnector(SQLConnector):
@@ -19,6 +22,175 @@ class mssqlConnector(SQLConnector):
     allow_column_alter: bool = True  # Whether altering column types is supported.
     allow_merge_upsert: bool = True  # Whether MERGE UPSERT is supported.
     allow_temp_tables: bool = True  # Whether temp tables are supported.
+    dropped_tables = dict()
+
+    def get_connection(self):
+        """ Checks if current SQLAlchemy connection object is valid and returns the connection object.
+
+        Returns:
+            The active SQLAlchemy connection object.
+        """
+
+        try:
+            self.connection.execute(text("SELECT 1"))
+        except:
+            self._connection = self.create_sqlalchemy_connection()
+
+        return self.connection
+
+
+    def create_sqlalchemy_engine(self) -> sqlalchemy.engine.Engine:
+        """Return a new SQLAlchemy engine using the provided config.
+        Developers can generally override just one of the following:
+        `sqlalchemy_engine`, sqlalchemy_url`.
+        Returns:
+            A newly created SQLAlchemy engine object.
+        """
+        engine = sqlalchemy.create_engine(
+            self.sqlalchemy_url,
+            echo=False,
+            pool_pre_ping=True,
+            pool_recycle=1800
+        )
+
+        return engine
+
+    def table_exists(self, full_table_name: str) -> bool:
+        """Determine if the target table already exists.
+
+        Args:
+            full_table_name: the target table name.
+
+        Returns:
+            True if table exists, False if not, None if unsure or undetectable.
+        """
+        kwargs = dict()
+
+        if "." in full_table_name:
+            kwargs["schema"] = full_table_name.split(".")[0]
+            full_table_name = full_table_name.split(".")[1]
+
+        self.logger.info(f"Checking table exists: {full_table_name} kwrags={kwargs}")
+
+        return cast(
+            bool,
+            sqlalchemy.inspect(self._engine).has_table(full_table_name, **kwargs),
+        )
+
+    def prepare_column(
+            self,
+            full_table_name: str,
+            column_name: str,
+            sql_type: sqlalchemy.types.TypeEngine,
+    ) -> None:
+
+        schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
+        table_name = full_table_name.split(".")[-1]
+
+        """
+        Ensure a column exists in the table with the correct data type.
+        If the column does not exist, create it.
+
+        :param full_table_name: The full table name (schema.table_name).
+        :param column_name: The name of the column to ensure.
+        :param sql_type: The SQLAlchemy type to enforce.
+        """
+        # Check if the column exists
+        column_exists_query = f"""
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = '{schema}'
+          AND TABLE_NAME = '{table_name}'
+          AND COLUMN_NAME = '{column_name}'
+        """
+        result = self.get_connection().execute(column_exists_query).scalar()
+
+        if result == 0:
+            # Add the column if it does not exist
+            alter_sql = f"ALTER TABLE {schema}.[{table_name}] ADD [{column_name}] {sql_type.compile(dialect=mssql.dialect())}"
+            with self.get_connection().begin():
+                self.get_connection().execute(alter_sql)
+            self.logger.info(f"Added column {column_name} to {full_table_name}.")
+
+    from sqlalchemy import create_engine
+
+    def get_column_order(self, full_table_name):
+
+        schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
+        table_name = full_table_name.split(".")[-1]
+
+        # SQL query to get the column order
+        query = f"""
+        SELECT 
+            COLUMN_NAME
+        FROM 
+            INFORMATION_SCHEMA.COLUMNS
+        WHERE 
+            TABLE_SCHEMA = '{schema}' AND
+            TABLE_NAME = '{table_name}'
+        ORDER BY 
+            ORDINAL_POSITION;
+        """
+
+        with self.get_connection().begin():
+            result = self.get_connection().execute(query)
+
+            # Fetch all the results and return the column names in order
+            column_order = [row['COLUMN_NAME'] for row in result]
+
+            # Return the column order as a list
+            return column_order
+
+    def prepare_table(
+        self,
+        full_table_name: str,
+        schema: dict,
+        primary_keys: list[str],
+        partition_keys: list[str] | None = None,
+        as_temp_table: bool = False,
+    ) -> None:
+        """Adapt target table to provided schema if possible.
+
+        Args:
+            full_table_name: the target table name.
+            schema: the JSON Schema for the table.
+            primary_keys: list of key properties.
+            partition_keys: list of partition keys.
+            as_temp_table: True to create a temp table.
+        """
+        # NOTE: Force create the table if truncate flag is on
+        if self.config.get("truncate") and not self.dropped_tables.get(full_table_name, False):
+            self.logger.info(f"Force dropping the table {full_table_name}!")
+            with self.connection.begin():  # Starts a transaction
+                drop_table = '.'.join([f'[{x}]' for x in full_table_name.split('.')])
+                self.connection.execute(f"DROP TABLE IF EXISTS {drop_table};")
+            self.dropped_tables[full_table_name] = True
+
+        if not self.table_exists(full_table_name=full_table_name):
+            self.create_empty_table(
+                full_table_name=full_table_name,
+                schema=schema,
+                primary_keys=primary_keys,
+                partition_keys=partition_keys,
+                as_temp_table=as_temp_table,
+            )
+            return
+
+        for property_name, property_def in schema["properties"].items():
+            self.prepare_column(
+                full_table_name, property_name, self.to_sql_type(property_def)
+            )
+
+    def prepare_schema(self, schema_name: str) -> None:
+        """Create the target database schema.
+
+        Args:
+            schema_name: The target schema name.
+        """
+        schema_exists = self.schema_exists(schema_name)
+        if not schema_exists:
+            write_event({"event": "SCHEMA_CREATED", "name": schema_name})
+            self.create_schema(schema_name)
 
     def create_table_with_records(
         self,
@@ -42,6 +214,7 @@ class mssqlConnector(SQLConnector):
         if primary_keys is None:
             primary_keys = self.key_properties
         partition_keys = partition_keys or None
+
         self.connector.prepare_table(
             full_table_name=full_table_name,
             primary_keys=primary_keys,
@@ -60,13 +233,22 @@ class mssqlConnector(SQLConnector):
         """
 
         connection_url = sqlalchemy.engine.url.URL.create(
-            drivername="mssql+pymssql",
-            username=config["user"],
-            password=config["password"],
+            drivername="mssql+pyodbc",
+            username=config['user'],
+            password=urllib.parse.quote_plus(config["password"]),
             host=config["host"],
             port=config["port"],
             database=config["database"],
+            query={
+                "driver": "ODBC Driver 17 for SQL Server",  # Use Microsoft's ODBC driver
+                "Encrypt": "yes",  # Ensures SSL encryption for Azure SQL
+                "TrustServerCertificate": "yes",  # Prevents bypassing certificate validation
+                "MARS_Connection": "Yes",
+                "ConnectRetryCount": "3",
+                "ConnectRetryInterval": "15"
+            }
         )
+
         return str(connection_url)
 
     def create_empty_table(
@@ -107,10 +289,24 @@ class mssqlConnector(SQLConnector):
 
             columntype = self.to_sql_type(property_jsonschema)
 
-            # In MSSQL, Primary keys can not be more than 900 bytes. Setting at 255
-            if isinstance(columntype, sqlalchemy.types.VARCHAR) and is_primary_key:
-                columntype = sqlalchemy.types.VARCHAR(255)
+            if isinstance(columntype, sqlalchemy.types.VARCHAR) or isinstance(columntype, sqlalchemy.types.NVARCHAR):
+                if is_primary_key:
+                    # In MSSQL, Primary keys can not be more than 900 bytes. Setting at 255
+                    columntype = sqlalchemy.types.VARCHAR(255)
+                else:
+                    columntype = sqlalchemy.types.VARCHAR("MAX") 
+            elif isinstance(columntype, sqlalchemy.types.DECIMAL) or isinstance(columntype, sqlalchemy.types.NUMERIC):
+                # Increase length to avoid truncation issues
+                columntype = sqlalchemy.types.DECIMAL(38, 20)  # Max 38 digits, 20 decimals
 
+            elif isinstance(columntype, sqlalchemy.types.INTEGER):
+                # Upgrade to BIGINT to avoid truncation issues
+                columntype = sqlalchemy.types.BIGINT
+
+            elif isinstance(columntype, sqlalchemy.types.FLOAT):
+                # Increase length to avoid truncation issues
+                columntype = sqlalchemy.types.FLOAT(53)  # Maximum precision for FLOAT
+            
             columns.append(
                 sqlalchemy.Column(
                     property_name,
@@ -119,8 +315,19 @@ class mssqlConnector(SQLConnector):
                 )
             )
 
-        _ = sqlalchemy.Table(full_table_name, meta, *columns)
+        kwargs = dict()
+
+        schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
+        full_table_name = full_table_name.split(".")[-1]
+
+        kwargs["schema"] = schema
+
+        _ = sqlalchemy.Table(full_table_name, meta, *columns, **kwargs)
         meta.create_all(self._engine)
+
+        write_event({"event": "TABLE_CREATED", "name": full_table_name, "schema": schema})
+
+        # self.logger.info(f"Create table with cols = {columns}")
 
     def merge_sql_types(  # noqa
         self, sql_types: list[sqlalchemy.types.TypeEngine]
@@ -176,6 +383,7 @@ class mssqlConnector(SQLConnector):
                     if (
                         (opt_len is None)
                         or (opt_len == 0)
+                        or (current_type.length is None)
                         or (opt_len >= current_type.length)
                     ):
                         return opt
@@ -187,6 +395,7 @@ class mssqlConnector(SQLConnector):
                     if (
                         (opt_len is None)
                         or (opt_len == 0)
+                        or (current_type.length is None)
                         or (opt_len >= current_type.length)
                     ):
                         return opt
@@ -238,7 +447,7 @@ class mssqlConnector(SQLConnector):
                 f"from '{current_type}' to '{compatible_sql_type}'."
             )
         try:
-            self.connection.execute(
+            self.get_connection().execute(
                 f"""ALTER TABLE { str(full_table_name) }
                 ALTER COLUMN { str(column_name) } { str(compatible_sql_type) }"""
             )
@@ -248,7 +457,7 @@ class mssqlConnector(SQLConnector):
                 f"from '{current_type}' to '{compatible_sql_type}'."
             ) from e
 
-        # self.connection.execute(
+        # self.get_connection().execute(
         #     sqlalchemy.DDL(
         #         "ALTER TABLE %(table)s ALTER COLUMN %(col_name)s %(col_type)s",
         #         {
@@ -284,7 +493,7 @@ class mssqlConnector(SQLConnector):
         )
 
         try:
-            self.connection.execute(
+            self.get_connection().execute(
                 f"""ALTER TABLE { str(full_table_name) }
                 ADD { str(create_column_clause) } """
             )
@@ -340,37 +549,90 @@ class mssqlConnector(SQLConnector):
 
             maxlength = jsonschema_type.get("maxLength")
             return cast(
-                sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR(maxlength)
+                sqlalchemy.types.TypeEngine, sqlalchemy.types.NVARCHAR(maxlength)
             )
 
         if self._jsonschema_type_check(jsonschema_type, ("integer",)):
-            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.INTEGER())
+            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.BIGINT())
         if self._jsonschema_type_check(jsonschema_type, ("number",)):
             return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.NUMERIC(29, 16))
         if self._jsonschema_type_check(jsonschema_type, ("boolean",)):
-            return cast(sqlalchemy.types.TypeEngine, mssql.VARCHAR(1))
+            return cast(sqlalchemy.types.TypeEngine, mssql.NVARCHAR(1))
 
         if self._jsonschema_type_check(jsonschema_type, ("object",)):
-            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
+            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.NVARCHAR())
 
         if self._jsonschema_type_check(jsonschema_type, ("array",)):
-            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
+            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.NVARCHAR())
 
         return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
 
-    def create_temp_table_from_table(self, from_table_name):
-        """Temp table from another table."""
+    def drop_temp_table_from_table(self, temp_table):
+        """Drop the temp table from an existing table, preserving identity columns and default values."""
 
         try:
-            self.logger.info("Dropping existing temp table.")
-            self.connection.execute(f"DROP TABLE IF EXISTS #{from_table_name};")
-        except:
-            self.logger.info("No temp table to drop.")
+            self.logger.info(f"Dropping existing temp table {temp_table}")
+            with self.get_connection().begin():  # Starts a transaction
+                temp_table = '.'.join([f'[{x}]' for x in temp_table.split('.')])
+                self.get_connection().execute(f"DROP TABLE IF EXISTS {temp_table};")
+        except Exception as e:
+            self.logger.info(f"No temp table to drop. Error: {e}")
 
-        ddl = f"""
-            SELECT TOP 0 *
-            into #{from_table_name}
-            FROM {from_table_name}
+    def create_temp_table_from_table(self, from_table_name):
+        """Create a temp table from an existing table, preserving identity columns and default values."""
+        parts = from_table_name.split(".")
+        schema = parts[0] + "." if "." in from_table_name else ""
+        table = "temp_" + parts[-1]
+
+        self.drop_temp_table_from_table(f"{schema}{table}")
+
+        # Query to get column definitions, including identity property
+        get_columns_query = f"""
+            SELECT 
+                c.name AS COLUMN_NAME,
+                t.name AS DATA_TYPE,
+                c.max_length AS COLUMN_LENGTH,
+                c.precision AS PRECISION_VALUE,
+                c.scale AS SCALE_VALUE,
+                d.definition AS COLUMN_DEFAULT,
+                COLUMNPROPERTY(c.object_id, c.name, 'IsIdentity') AS IS_IDENTITY
+            FROM sys.columns c
+            JOIN sys.types t ON c.user_type_id = t.user_type_id
+            LEFT JOIN sys.default_constraints d ON c.default_object_id = d.object_id
+            WHERE c.object_id = OBJECT_ID('{from_table_name}')
         """
 
-        self.connection.execute(ddl)
+        columns = self.get_connection().execute(get_columns_query).fetchall()
+        # self.logger.info(f"Fetched columns: {columns}")
+
+        # Construct the CREATE TABLE statement
+        column_definitions = []
+        for col in columns:
+            col_name = col[0]
+            col_type = col[1]
+            col_length = col[2]
+            precision_value = col[3]
+            scale_value = col[4]
+            col_default = f"DEFAULT {col[5]}" if col[5] else ""
+            is_identity = col[6]
+
+            identity_str = "IDENTITY(1,1)" if is_identity else ""
+
+            # Apply length only if it's a varchar/nvarchar type
+            if col_type.lower() in ["varchar", "nvarchar"]:
+                col_length_str = "(MAX)" if col_length == -1 else f"({col_length})"
+            elif col_type.lower() in ["decimal", "numeric"]:
+                col_length_str = f"({precision_value}, {scale_value})"
+            else:
+                col_length_str = ""
+
+            column_definitions.append(f"[{col_name}] {col_type}{col_length_str} {identity_str} {col_default}")
+
+        create_temp_table_sql = f"""
+            CREATE TABLE {schema}{table} (
+                {", ".join(column_definitions)}
+            );
+        """
+
+        # self.logger.info(f"Generated SQL for temp table:\n{create_temp_table_sql}")
+        self.get_connection().execute(create_temp_table_sql)
