@@ -1,8 +1,9 @@
 # target-mssql
 
-`target-mssql` is a Singer target for mssql.
+**target-mssql** is a Singer Target for writing data to a Microsoft SQL Database.
+**target-mssql** can be run on [hotglue](https://hotglue.com), an embedded integration platform for running Singer Taps and Targets.
 
-Build with the [Meltano Target SDK](https://sdk.meltano.com).
+This target was built with the [Meltano Target SDK](https://sdk.meltano.com).
 
 ## Known limitations
 
