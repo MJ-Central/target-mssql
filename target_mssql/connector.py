@@ -157,6 +157,10 @@ class mssqlConnector(SQLConnector):
         result = self.get_connection().execute(column_exists_query).scalar()
 
         if result == 0:
+            # Convert VARCHAR/NVARCHAR to VARCHAR(MAX) to avoid 8060 byte row size limit.
+            # Matches the same conversion applied in create_empty_table for non-PK columns.
+            if isinstance(sql_type, (sqlalchemy.types.VARCHAR, sqlalchemy.types.NVARCHAR)):
+                sql_type = sqlalchemy.types.VARCHAR("MAX")
             # Add the column if it does not exist
             alter_sql = f"ALTER TABLE {schema}.[{table_name}] ADD [{column_name}] {sql_type.compile(dialect=mssql.dialect())}"
             with self.get_connection().begin():
