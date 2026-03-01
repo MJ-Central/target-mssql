@@ -389,9 +389,11 @@ class mssqlConnector(SQLConnector):
         _ = sqlalchemy.Table(full_table_name, meta, *columns, **kwargs)
         meta.create_all(self._engine)
 
-        write_event({"event": "TABLE_CREATED", "name": full_table_name, "schema": schema})
+        self.get_connection().execute(
+            f"EXEC sp_tableoption '{schema}.{full_table_name}', 'large value types out of row', 1"
+        )
 
-        # self.logger.info(f"Create table with cols = {columns}")
+        write_event({"event": "TABLE_CREATED", "name": full_table_name, "schema": schema})
 
     def merge_sql_types(  # noqa
         self, sql_types: list[sqlalchemy.types.TypeEngine]
@@ -706,3 +708,8 @@ class mssqlConnector(SQLConnector):
 
         # self.logger.info(f"Generated SQL for temp table:\n{create_temp_table_sql}")
         self.get_connection().execute(create_temp_table_sql)
+
+        temp_qualified = f"{schema}{table}"
+        self.get_connection().execute(
+            f"EXEC sp_tableoption '{temp_qualified}', 'large value types out of row', 1"
+        )
